@@ -36,3 +36,36 @@ def sample_goals(a: str, b: str, ratings: dict[str, float],
 def elo_winprob(r_a: float, r_b: float) -> float:
     """Standard Elo win probability for A over B."""
     return 1.0 / (1.0 + 10 ** (-(r_a - r_b) / 400.0))
+
+
+def _rank_key(s: dict, rng: np.random.Generator) -> tuple:
+    """Sort key (ascending => best first): points, goal diff, goals for, random."""
+    return (-s["pts"], -(s["gf"] - s["ga"]), -s["gf"], rng.random())
+
+
+def simulate_group(teams: list[str], ratings: dict[str, float],
+                   rng: np.random.Generator, p: MatchModelParams):
+    """Round-robin a 4-team group; return (ranked_team_names, stats_by_team).
+
+    Tiebreakers (v1, simplified): points -> goal difference -> goals for ->
+    random draw. Head-to-head mini-tables are deferred to v2.
+    """
+    stats = {t: {"pts": 0, "gf": 0, "ga": 0} for t in teams}
+    for a, b in itertools.combinations(teams, 2):
+        ga, gb = sample_goals(a, b, ratings, rng, p)
+        stats[a]["gf"] += ga; stats[a]["ga"] += gb
+        stats[b]["gf"] += gb; stats[b]["ga"] += ga
+        if ga > gb:
+            stats[a]["pts"] += 3
+        elif gb > ga:
+            stats[b]["pts"] += 3
+        else:
+            stats[a]["pts"] += 1; stats[b]["pts"] += 1
+    ranked = sorted(teams, key=lambda t: _rank_key(stats[t], rng))
+    return ranked, stats
+
+
+def rank_thirds(thirds: list[tuple[str, dict]], rng: np.random.Generator) -> list[str]:
+    """Rank all third-placed teams and return the best 8 (2026 format)."""
+    ordered = sorted(thirds, key=lambda x: _rank_key(x[1], rng))
+    return [name for name, _ in ordered[:8]]
