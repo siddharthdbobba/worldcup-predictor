@@ -55,3 +55,13 @@ def test_recommend_bets_empty_when_no_value():
     recs = recommend_bets({"A": 0.20}, {"A": 0.25}, {"A": 0.26},
                           bankroll=100.0)
     assert recs == []
+
+
+def test_incoherent_probabilities_above_one_raise():
+    import pytest
+    bets = [
+        {"team": "A", "ask": 0.30, "p": 0.60, "market": 0.35, "edge": 0.25, "ev": 1.0},
+        {"team": "B", "ask": 0.30, "p": 0.60, "market": 0.35, "edge": 0.25, "ev": 1.0},
+    ]  # p sums to 1.2 -> incoherent
+    with pytest.raises(ValueError):
+        kelly_allocate(bets, bankroll=1000.0)

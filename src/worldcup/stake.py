@@ -49,6 +49,12 @@ def kelly_allocate(bets: list[dict], bankroll: float, kelly_fraction: float = 0.
         return []
     liquidity = liquidity or {}
     p = np.array([b["p"] for b in bets])
+    if float(p.sum()) > 1.0 + 1e-9:
+        raise ValueError(
+            f"bet probabilities sum to {float(p.sum()):.4f} > 1; cannot size "
+            "mutually-exclusive Kelly on an incoherent distribution. Normalize the "
+            "model's championship probabilities so the full field sums to 1 first."
+        )
     a = np.array([b["ask"] for b in bets])
     q0 = max(0.0, 1.0 - float(p.sum()))           # prob none of the bet teams win
 
@@ -64,7 +70,8 @@ def kelly_allocate(bets: list[dict], bankroll: float, kelly_fraction: float = 0.
 
     n = len(bets)
     res = minimize(
-        neg_log_wealth, x0=np.full(n, 0.01),
+        neg_log_wealth,
+        x0=np.full(n, min(0.01, 0.5 / n)),
         method="SLSQP",
         bounds=[(0.0, 1.0)] * n,
         constraints=[{"type": "ineq", "fun": lambda f: 1.0 - f.sum() - 1e-6}],
