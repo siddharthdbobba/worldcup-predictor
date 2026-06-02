@@ -13,6 +13,12 @@ def parse_args():
     ap.add_argument("--seed", type=int, default=42, help="RNG seed (reproducibility)")
     ap.add_argument("--kelly-fraction", type=float, default=0.5,
                     help="Fraction of full Kelly (default 0.5)")
+    ap.add_argument("--min-edge", type=float, default=0.05,
+                    help="Min model-vs-market edge (probability points) for a value "
+                         "bet; e.g. 0.05 = 5pp. Use 0 (or --all-bets) to show every "
+                         "+EV bet. Default 0.05.")
+    ap.add_argument("--all-bets", action="store_true",
+                    help="Show every +EV value bet (equivalent to --min-edge 0)")
     return ap.parse_args()
 
 
@@ -20,7 +26,11 @@ def main():
     args = parse_args()
     if args.bankroll is not None and args.bankroll <= 0:
         raise SystemExit("error: --bankroll must be positive")
-    asyncio.run(run_agent(args.bankroll, args.sims, args.seed, args.kelly_fraction))
+    if args.min_edge < 0:
+        raise SystemExit("error: --min-edge must be >= 0")
+    min_edge = 0.0 if args.all_bets else args.min_edge
+    asyncio.run(run_agent(args.bankroll, args.sims, args.seed,
+                          args.kelly_fraction, min_edge))
 
 
 if __name__ == "__main__":

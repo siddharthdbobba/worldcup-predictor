@@ -22,6 +22,17 @@ def test_no_value_returns_empty():
     assert find_value_bets(model, market, ask) == []
 
 
+def test_min_edge_gate_filters_small_edges_but_default_shows_all():
+    model = {"Big": 0.30, "Tiny": 0.05}      # edges vs market: 0.08 and 0.02
+    market = {"Big": 0.22, "Tiny": 0.03}
+    ask = {"Big": 0.25, "Tiny": 0.035}       # both +EV at the ask
+    # Default (min_edge=0): both qualify.
+    assert {b["team"] for b in find_value_bets(model, market, ask)} == {"Big", "Tiny"}
+    # With a 5pp gate, only the meaningful disagreement survives.
+    gated = find_value_bets(model, market, ask, min_edge=0.05)
+    assert {b["team"] for b in gated} == {"Big"}
+
+
 from worldcup.stake import kelly_allocate, recommend_bets
 
 

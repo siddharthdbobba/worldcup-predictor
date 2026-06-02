@@ -9,24 +9,29 @@ from __future__ import annotations
 
 
 def find_value_bets(model: dict[str, float], market: dict[str, float],
-                    ask: dict[str, float]) -> list[dict]:
+                    ask: dict[str, float], min_edge: float = 0.0) -> list[dict]:
     """Return +EV candidate bets (buying at ask), each with edge and EV.
 
-    A bet is +EV when model% > ask. `edge` is the headline signal model - market;
-    `ev` is expected value per $1 staked at the ask.
+    A bet qualifies when it is +EV at the ask (model% > ask) AND the model
+    disagrees with the market consensus by at least `min_edge` (in probability
+    points, e.g. 0.05 = 5pp). The edge gate filters out the long tail of tiny
+    disagreements against a sharp market, which are usually model noise rather
+    than real value. `edge` is the headline signal model - market; `ev` is
+    expected value per $1 staked at the ask.
     """
     bets = []
     for team, p in model.items():
         a = ask.get(team)
         if a is None or a <= 0 or a >= 1:
             continue
-        if p > a:
+        edge = p - market.get(team, a)
+        if p > a and edge >= min_edge:
             bets.append({
                 "team": team,
                 "ask": a,
                 "p": p,
                 "market": market.get(team, a),
-                "edge": p - market.get(team, a),
+                "edge": edge,
                 "ev": p / a - 1.0,
             })
     return bets
@@ -100,7 +105,9 @@ def kelly_allocate(bets: list[dict], bankroll: float, kelly_fraction: float = 0.
 def recommend_bets(model: dict[str, float], market: dict[str, float],
                    ask: dict[str, float], bankroll: float,
                    kelly_fraction: float = 0.5,
-                   liquidity: dict[str, float] | None = None) -> list[BetRec]:
-    """End-to-end: detect +EV bets, then Kelly-allocate the bankroll across them."""
-    return kelly_allocate(find_value_bets(model, market, ask),
+                   liquidity: dict[str, float] | None = None,
+                   min_edge: float = 0.0) -> list[BetRec]:
+    """End-to-end: detect +EV bets (optionally gated by `min_edge`), then
+    Kelly-allocate the bankroll across them. `min_edge=0` shows all value bets."""
+    return kelly_allocate(find_value_bets(model, market, ask, min_edge=min_edge),
                           bankroll, kelly_fraction, liquidity)

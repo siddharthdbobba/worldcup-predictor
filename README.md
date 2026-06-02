@@ -26,6 +26,14 @@ cp .env.example .env   # add ANTHROPIC_API_KEY
 ```
 Omit `--bankroll` for a forecast with no betting card.
 
+By default the betting card only lists bets where the model disagrees with the
+market by at least 5 percentage points (`--min-edge 0.05`) — this filters the long
+tail of tiny longshot edges that are usually model noise. Loosen or tighten it:
+```bash
+.venv/bin/python main.py --bankroll 100 --min-edge 0.03   # 3pp gate
+.venv/bin/python main.py --bankroll 100 --all-bets        # show every +EV bet
+```
+
 ## Test
 ```bash
 .venv/bin/pytest -q

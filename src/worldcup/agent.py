@@ -21,13 +21,14 @@ class PipelineResult:
 
 def run_pipeline(ratings, groups, market, ask, confidence, depth=None, *, bankroll,
                  n_sims=20000, seed=42, w_cap=0.7, K=0.5,
-                 kelly_fraction=0.5) -> PipelineResult:
+                 kelly_fraction=0.5, min_edge=0.05) -> PipelineResult:
     """Simulate, blend, and (if bankroll given) recommend bets.
 
     `ratings` may cover more teams than the draw; only the 48 drawn teams are
     simulated. `confidence` is the market's normalized confidence in [0, 2] (the
     blend weight; hence the K~0.5 default); `depth` is dollar order-book depth used
-    only to cap stake sizes.
+    only to cap stake sizes. `min_edge` gates value bets by model-vs-market
+    disagreement (probability points); set 0 to show every +EV bet.
     """
     teams = {t for ts in groups.values() for t in ts}
     missing = sorted(t for t in teams if t not in ratings)
@@ -40,7 +41,8 @@ def run_pipeline(ratings, groups, market, ask, confidence, depth=None, *, bankro
     bets: list[BetRec] = []
     if bankroll:
         bets = recommend_bets(model, market, ask, bankroll,
-                              kelly_fraction=kelly_fraction, liquidity=depth)
+                              kelly_fraction=kelly_fraction, liquidity=depth,
+                              min_edge=min_edge)
     return PipelineResult(forecasts=forecasts, bets=bets)
 
 
@@ -84,7 +86,8 @@ async def _t_markets(args):
 
 
 @tool("run_forecast", "Simulate, blend, and recommend bets",
-      {"bankroll": float, "n_sims": int, "seed": int, "kelly_fraction": float})
+      {"bankroll": float, "n_sims": int, "seed": int, "kelly_fraction": float,
+       "min_edge": float})
 async def _t_forecast(args):
     groups = fetch_group_draw()
     ratings = fetch_ratings()
@@ -94,7 +97,8 @@ async def _t_forecast(args):
                           bankroll=args.get("bankroll"),
                           n_sims=int(args.get("n_sims", 20000)),
                           seed=int(args.get("seed", 42)),
-                          kelly_fraction=float(args.get("kelly_fraction", 0.5)))
+                          kelly_fraction=float(args.get("kelly_fraction", 0.5)),
+                          min_edge=float(args.get("min_edge", 0.05)))
     print_report(result.forecasts, result.bets, args.get("bankroll"))
     md = build_markdown(result.forecasts, result.bets, args.get("bankroll"))
     return {"content": [{"type": "text", "text": md}]}
@@ -117,9 +121,10 @@ def build_options() -> ClaudeAgentOptions:
 
 
 async def run_agent(bankroll: float | None, n_sims: int, seed: int,
-                    kelly_fraction: float) -> None:
+                    kelly_fraction: float, min_edge: float = 0.05) -> None:
     prompt = (f"Forecast the 2026 World Cup. Bankroll: "
               f"{bankroll if bankroll else 'none (skip betting card)'}. "
-              f"Use n_sims={n_sims}, seed={seed}, kelly_fraction={kelly_fraction}.")
+              f"Use n_sims={n_sims}, seed={seed}, kelly_fraction={kelly_fraction}, "
+              f"min_edge={min_edge}.")
     async for message in query(prompt=prompt, options=build_options()):
         print(message)
