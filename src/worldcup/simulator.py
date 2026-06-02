@@ -69,3 +69,44 @@ def rank_thirds(thirds: list[tuple[str, dict]], rng: np.random.Generator) -> lis
     """Rank all third-placed teams and return the best 8 (2026 format)."""
     ordered = sorted(thirds, key=lambda x: _rank_key(x[1], rng))
     return [name for name, _ in ordered[:8]]
+
+
+def bracket_seed_order(n: int) -> list[int]:
+    """Standard single-elimination seed order for a bracket of size n (power of 2).
+
+    n=4 -> [1, 4, 2, 3]. Adjacent pairs are first-round matchups.
+    """
+    order = [1, 2]
+    while len(order) < n:
+        m = len(order) * 2 + 1
+        nxt = []
+        for s in order:
+            nxt.append(s)
+            nxt.append(m - s)
+        order = nxt
+    return order
+
+
+def play_match_ko(a: str, b: str, ratings: dict[str, float],
+                  rng: np.random.Generator, p: MatchModelParams) -> str:
+    """Knockout match: scoreline, then resolve any tie via strength-weighted flip."""
+    ga, gb = sample_goals(a, b, ratings, rng, p)
+    if ga > gb:
+        return a
+    if gb > ga:
+        return b
+    return a if rng.random() < elo_winprob(ratings[a], ratings[b]) else b
+
+
+def play_knockout(seeded_teams: list[str], ratings: dict[str, float],
+                  rng: np.random.Generator, p: MatchModelParams) -> str:
+    """Play a fixed seeded bracket to a single champion.
+
+    seeded_teams[i] is seed i+1 (index 0 = top seed).
+    """
+    order = bracket_seed_order(len(seeded_teams))
+    bracket = [seeded_teams[s - 1] for s in order]
+    while len(bracket) > 1:
+        bracket = [play_match_ko(bracket[i], bracket[i + 1], ratings, rng, p)
+                   for i in range(0, len(bracket), 2)]
+    return bracket[0]
