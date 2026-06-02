@@ -9,8 +9,11 @@ class Team:
 
 @dataclass(frozen=True)
 class MatchModelParams:
+    # NOTE: base/scale are uncalibrated v1 defaults; scale=600 yields fairly
+    # aggressive favorite/underdog goal asymmetry. Tune against historical World
+    # Cup results before relying on the forecast (see spec open items).
     base: float = 1.35              # baseline expected goals per team
-    scale: float = 600.0           # Elo scale for goal expectation
+    scale: float = 600.0           # Elo scale for goal expectation (sensitivity)
     host_bump: float = 60.0        # Elo added to a host in its own match
     hosts: tuple[str, ...] = ("United States", "Canada", "Mexico")
 

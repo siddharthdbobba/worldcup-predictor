@@ -95,7 +95,10 @@ def play_match_ko(a: str, b: str, ratings: dict[str, float],
         return a
     if gb > ga:
         return b
-    return a if rng.random() < elo_winprob(ratings[a], ratings[b]) else b
+    # Tie -> extra time/penalties: strength-weighted flip, applying the host bump
+    # consistently with sample_goals so hosts keep their advantage in shootouts too.
+    return a if rng.random() < elo_winprob(_eff_rating(a, ratings, p),
+                                           _eff_rating(b, ratings, p)) else b
 
 
 def play_knockout(seeded_teams: list[str], ratings: dict[str, float],
