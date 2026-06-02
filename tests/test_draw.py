@@ -24,3 +24,17 @@ def test_validate_rejects_short_group():
     bad["A"] = ["a", "b", "c"]                   # only 3
     with pytest.raises(ValueError):
         validate_draw(bad)
+
+
+def test_validate_rejects_none_slot():
+    bad = {chr(65 + i): ["a", "b", "c", "d"] for i in range(12)}
+    bad["A"] = ["a", "b", "c", None]
+    with pytest.raises(ValueError):
+        validate_draw(bad)
+
+
+def test_validate_rejects_duplicate_teams():
+    bad = {chr(65 + i): [f"{chr(65+i)}{j}" for j in range(4)] for i in range(12)}
+    bad["B"][0] = "A0"  # duplicate of a team in group A
+    with pytest.raises(ValueError):
+        validate_draw(bad)

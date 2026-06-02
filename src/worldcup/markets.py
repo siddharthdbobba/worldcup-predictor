@@ -15,7 +15,12 @@ KALSHI_URL = "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticke
 
 def parse_polymarket(payload: dict) -> dict[str, dict]:
     """Parse a gamma-api event payload into {team: {prob, ask, liquidity}}."""
-    event = payload[0] if isinstance(payload, list) else payload
+    if isinstance(payload, list):
+        if not payload:
+            return {}
+        event = payload[0]
+    else:
+        event = payload
     out: dict[str, dict] = {}
     for m in event.get("markets", []):
         team = canonical(m["groupItemTitle"])
@@ -67,6 +72,9 @@ def combine_markets(poly: dict[str, dict], kalshi: dict[str, dict]):
         asks = [x["ask"] for x in (poly.get(t), kalshi.get(t)) if x]
         ask[t] = min(asks) if asks else 1.0
         liq[t] = total_l
+    total_p = sum(prob.values())
+    if total_p > 0:
+        prob = {t: v / total_p for t, v in prob.items()}
     return prob, ask, liq
 
 

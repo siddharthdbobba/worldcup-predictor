@@ -21,8 +21,12 @@ def validate_draw(groups: dict[str, list[str]]) -> None:
     for label, teams in groups.items():
         if len(teams) != 4:
             raise ValueError(f"group {label} has {len(teams)} teams, expected 4")
-        if any(not t.strip() for t in teams):
-            raise ValueError(f"group {label} has an unresolved/blank slot")
+        for t in teams:
+            if not isinstance(t, str) or not t.strip():
+                raise ValueError(f"group {label} has an unresolved/blank slot")
+    all_teams = [t for ts in groups.values() for t in ts]
+    if len(all_teams) != len(set(all_teams)):
+        raise ValueError("draw contains duplicate team assignments")
 
 
 def fetch_group_draw(url: str = DRAW_URL, timeout: float = 20.0) -> dict[str, list[str]]:

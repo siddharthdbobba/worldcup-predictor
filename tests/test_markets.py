@@ -29,3 +29,16 @@ def test_combine_devigs_and_liquidity_weights():
     prob, ask, liq = combine_markets(poly, kalshi)
     assert math.isclose(prob["France"] + prob["Spain"], 1.0, abs_tol=1e-9)  # de-vigged
     assert liq["France"] == 400.0                                           # summed
+
+
+def test_combine_normalizes_under_asymmetric_liquidity():
+    poly = {"France": {"prob": 0.6, "ask": 0.61, "liquidity": 100.0},
+            "Spain": {"prob": 0.4, "ask": 0.41, "liquidity": 300.0}}
+    kalshi = {"France": {"prob": 0.5, "ask": 0.51, "liquidity": 300.0},
+              "Spain": {"prob": 0.5, "ask": 0.51, "liquidity": 100.0}}
+    prob, _, _ = combine_markets(poly, kalshi)
+    assert abs(sum(prob.values()) - 1.0) < 1e-9
+
+
+def test_parse_polymarket_empty_list_returns_empty():
+    assert parse_polymarket([]) == {}
