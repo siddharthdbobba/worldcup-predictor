@@ -20,3 +20,38 @@ def test_no_value_returns_empty():
     market = {"A": 0.25}
     ask = {"A": 0.26}
     assert find_value_bets(model, market, ask) == []
+
+
+from worldcup.stake import kelly_allocate, recommend_bets
+
+
+def test_single_bet_matches_closed_form_kelly():
+    # One +EV bet; full Kelly should approach (p-a)/(1-a).
+    bets = [{"team": "A", "ask": 0.40, "p": 0.60, "market": 0.45,
+             "edge": 0.15, "ev": 0.5}]
+    recs = kelly_allocate(bets, bankroll=1000.0, kelly_fraction=1.0)
+    expected_fraction = (0.60 - 0.40) / (1 - 0.40)   # = 1/3
+    assert abs(recs[0].stake - expected_fraction * 1000.0) < 15.0
+
+
+def test_total_stake_never_exceeds_bankroll():
+    bets = [
+        {"team": "A", "ask": 0.20, "p": 0.40, "market": 0.25, "edge": 0.15, "ev": 1.0},
+        {"team": "B", "ask": 0.10, "p": 0.25, "market": 0.12, "edge": 0.13, "ev": 1.5},
+    ]
+    recs = kelly_allocate(bets, bankroll=500.0, kelly_fraction=0.5)
+    assert sum(r.stake for r in recs) <= 500.0 + 1e-6
+
+
+def test_liquidity_caps_stake():
+    bets = [{"team": "A", "ask": 0.40, "p": 0.90, "market": 0.45,
+             "edge": 0.45, "ev": 1.25}]
+    recs = kelly_allocate(bets, bankroll=1000.0, kelly_fraction=1.0,
+                          liquidity={"A": 25.0})
+    assert recs[0].stake <= 25.0 + 1e-9
+
+
+def test_recommend_bets_empty_when_no_value():
+    recs = recommend_bets({"A": 0.20}, {"A": 0.25}, {"A": 0.26},
+                          bankroll=100.0)
+    assert recs == []
