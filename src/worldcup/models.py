@@ -12,7 +12,7 @@ class MatchModelParams:
     base: float = 1.35              # baseline expected goals per team
     scale: float = 600.0           # Elo scale for goal expectation
     host_bump: float = 60.0        # Elo added to a host in its own match
-    hosts: tuple = ("United States", "Canada", "Mexico")
+    hosts: tuple[str, ...] = ("United States", "Canada", "Mexico")
 
 
 @dataclass
