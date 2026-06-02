@@ -12,6 +12,10 @@ winning the 2026 World Cup by **blending two independent signals**:
 1. A **Monte Carlo simulation** of the full tournament driven by team strength (Elo).
 2. **Prediction-market** implied probabilities (Polymarket + Kalshi).
 
+It then acts as a **staking advisor**: given a user-supplied bankroll, it finds
+positive-expected-value bets and recommends how much to stake on each using
+fractional Kelly across mutually-exclusive outcomes.
+
 The agent *orchestrates and wrangles data*; pure, deterministic, tested Python does
 all numerical work. The LLM is never in the critical path of the math.
 
@@ -30,22 +34,23 @@ wrapper) were rejected: B puts the LLM in the numerical critical path
 
 ```
 worldcup-predictor/
-  main.py                  # CLI entrypoint → runs the agent
-  pyproject.toml           # deps: claude-agent-sdk, numpy, httpx, rich, pytest
+  main.py                  # CLI entrypoint → runs the agent (accepts --bankroll)
+  pyproject.toml           # deps: claude-agent-sdk, numpy, scipy, httpx, rich, pytest
   .env.example             # ANTHROPIC_API_KEY
   README.md
   src/worldcup/
     agent.py               # Agent SDK setup: registers tools, system prompt, runs loop
-    models.py              # dataclasses: Team, Group, MatchModelParams, Forecast
+    models.py              # dataclasses: Team, Group, MatchModelParams, Forecast, BetRec
     teamnames.py           # canonical team-name normalization
     ratings.py             # [I/O] fetch + parse Elo/strength ratings  → tool
-    markets.py             # [I/O] fetch + parse Polymarket + Kalshi    → tool
+    markets.py             # [I/O] fetch + parse Polymarket + Kalshi (price, ask, liquidity) → tool
     draw.py                # [I/O] fetch + validate the 12×4 group draw → tool
     simulator.py           # [PURE] deterministic, seedable Monte Carlo core → tool
     blend.py               # [PURE] combine model% + market% → final forecast → tool
-    report.py              # render rich terminal table + markdown report
+    stake.py               # [PURE] value detection + fractional Kelly bankroll allocation → tool
+    report.py              # render rich terminal table + markdown report (forecast + betting card)
   tests/
-    test_simulator.py  test_groups.py  test_blend.py  test_teamnames.py
+    test_simulator.py  test_groups.py  test_blend.py  test_teamnames.py  test_stake.py
     fixtures/              # saved JSON so data-parsing is testable offline
 ```
 
@@ -55,26 +60,32 @@ worldcup-predictor/
 |-----------|---------|----------------|
 | `draw.py` | I/O | Fetch live group draw; **validate exactly 12 groups × 4 teams**, fail loudly if any slot unresolved |
 | `ratings.py` | I/O | Fetch current international Elo strength for all 48 teams; normalize names |
-| `markets.py` | I/O | Fetch Polymarket + Kalshi outright prices + liquidity/volume; strip vig → implied prob per priced team |
+| `markets.py` | I/O | Fetch Polymarket + Kalshi prices, **ask price/spread**, and liquidity/volume; strip vig → implied prob per priced team |
 | `teamnames.py` | pure | Canonical name map so ratings/markets/draw align |
 | `simulator.py` | **pure** | Seedable Monte Carlo: group stage → knockout → champion counts. No I/O. |
 | `blend.py` | **pure** | Liquidity-weighted blend of model% + market%, with unpriced fallback + renormalize |
-| `report.py` | I/O | Terminal table (Model / Market / Blended) + saved markdown report |
+| `stake.py` | **pure** | Detect +EV bets (`edge = model% − market%`); allocate bankroll via fractional Kelly across mutually-exclusive outcomes; cap by liquidity |
+| `report.py` | I/O | Terminal tables (forecast: Model/Market/Blended; betting card) + saved markdown report |
 | `agent.py` | — | Registers tools; system prompt drives orchestration |
 
 **Agent-facing tools:** `fetch_group_draw`, `fetch_team_ratings`,
-`fetch_market_probabilities`, `run_simulation`, `blend_forecast`.
+`fetch_market_probabilities`, `run_simulation`, `blend_forecast`, `recommend_bets`.
 
 ## Data flow
 
 ```
 1. fetch_group_draw()            → validate 12×4, else STOP loudly
 2. fetch_team_ratings()          → {team: rating} for all 48 (names normalized)
-3. fetch_market_probabilities()  → {team: (prob, liquidity)} for priced teams (~40 of 48)
+3. fetch_market_probabilities()  → {team: (prob, ask, liquidity)} for priced teams (~40 of 48)
 4. run_simulation(ratings, draw, seed=42, n=20000)  → model% per team
 5. blend_forecast(model%, market%, liquidity, w_cap, K)  → final forecast
-6. report()                      → terminal table + markdown file
+6. recommend_bets(model%, market%, ask, liquidity, bankroll, kelly_fraction)  → bet card
+7. report()                      → forecast table + betting card + markdown file
 ```
+
+Bankroll comes from the CLI (`--bankroll`, default e.g. $100; the agent may also
+prompt for it). If no bankroll is supplied, steps 1–5/7 still run — the betting card
+is simply omitted.
 
 ## Match model (shared by both stages)
 
@@ -145,6 +156,53 @@ blended_i  = w_i · market_i + (1 − w_i) · model_i
 Output rows: `team, model%, market%, blended%`, sorted by blended%. Showing all three
 columns surfaces where the model disagrees with the market.
 
+## Staking advisor (`stake.py`)
+
+Given a bankroll, recommend where to put money. **Pure, deterministic, fully tested.**
+
+**Betting-truth estimate is separate from the forecast.** The forecast table is the
+liquidity-weighted blend; the *betting edge* is **`edge_i = model%_i − market%_i`**.
+Rationale: the simulation is the one signal the market price does not already contain,
+so betting wagers that independent signal against the price. Using the
+liquidity-weighted blend here would be circular — it would shrink the edge on liquid
+favorites and inflate it on thin longshots, steering bets toward exactly the markets
+where both signals are least reliable and you can't get size on. We do not do that.
+
+**Price you bet against:** the **ask price (incl. spread)** you would actually pay,
+not the mid/last trade. EV and Kelly are computed against the ask.
+
+**Value detection:** keep only teams where buying at the ask is +EV, i.e.
+`model%_i > ask_i`. Expected value per $1 staked: `EV_i = model%_i / ask_i − 1`.
+
+**Stake sizing — fractional Kelly across mutually-exclusive outcomes.**
+Only one team wins the cup, so per-team independent Kelly over-stakes (correlated
+outcomes). Instead, maximize expected log-wealth over the stake vector subject to
+`Σ stake ≤ bankroll`:
+
+```
+maximize  Σ_outcomes  P(outcome) · log(wealth after that outcome)
+over      stakes f_i ≥ 0,  Σ f_i ≤ 1   (fractions of bankroll)
+```
+
+This is a small **convex** problem — solve numerically with `scipy.optimize`
+(robust and easy to unit-test) rather than a hand-coded closed form. Apply the chosen
+**Kelly fraction** (default ½, configurable) to the optimal stakes to reduce variance.
+
+**Liquidity is an execution cap, not just a weight:** cap each recommended stake by the
+depth actually available at the ask, so the tool never tells you to bet more than the
+book can absorb.
+
+**Realistic expectations (stated, not a bug):** against a liquid, vig'd ~$500M market,
+**very few teams clear +EV** after the overround. The honest output is often
+**0–2 value bets, sometimes none** — not a 20-team portfolio. The report says so when
+the list is short or empty.
+
+**Output — the betting card:** rows of
+`team, ask price, model%, market%, edge, EV%, recommended stake $, potential profit $`,
+plus `total staked`, `bankroll held in reserve`, and a one-line **responsible-gambling
+disclaimer** ("model-based estimate; markets are efficient; never stake more than you
+can afford to lose").
+
 ## Error handling (fail loud, never fabricate)
 
 - **Group draw** not exactly 12×4 / any unresolved slot → **STOP** with a clear message.
@@ -153,6 +211,9 @@ columns surfaces where the model disagrees with the market.
   a loud warning (blending requires a market).
 - **Name mismatch** → `teamnames.py` canonicalizes; any draw team that fails to map to a
   rating is reported, not silently dropped.
+- **Bankroll** missing → skip the betting card (forecast still produced); non-positive
+  bankroll → clear error. **No market data** → no betting card (staking requires prices).
+- **No +EV bets found** → not an error; report "no value bets at current prices."
 
 ## Testing (pytest, all offline)
 
@@ -163,13 +224,17 @@ columns surfaces where the model disagrees with the market.
   8-best-thirds ranking.
 - `test_blend.py` — liquidity-weighting math, unpriced fallback, fixed-`w` mode,
   renormalization sums to 100%.
+- `test_stake.py` — `edge = model − market` (never the blend); only +EV teams
+  recommended; Kelly stakes never exceed bankroll; liquidity cap respected; a no-edge
+  input returns **zero** bets; a clear single-edge input returns one sane stake.
 - `test_teamnames.py` — known aliases map correctly (USA↔United States,
   South Korea↔Korea Republic, …).
 - Data parsing validated against **saved fixture JSON** (live network not in unit tests).
 
 ## Stack
 
-`claude-agent-sdk` (Python) · `numpy` · `httpx` · `rich` · `pytest`.
+`claude-agent-sdk` (Python) · `numpy` · `scipy` (Kelly optimization) · `httpx` ·
+`rich` · `pytest`.
 
 ## Explicitly out of scope (v1)
 
@@ -181,7 +246,10 @@ columns surfaces where the model disagrees with the market.
 ## Open items to confirm during implementation
 
 - Exact Elo source + endpoint for `ratings.py` (and a fallback source).
-- Exact liquidity/volume field names in the Polymarket and Kalshi JSON payloads.
-- Calibration defaults for `BASE`, `S`, `w_cap`, `K`, and the host bump.
+- Exact liquidity/volume field names in the Polymarket and Kalshi JSON payloads,
+  and whether **ask price / order-book depth** is exposed (needed for the staking
+  execution cap; fall back to last price + a spread assumption if not).
+- Calibration defaults for `BASE`, `S`, `w_cap`, `K`, the host bump, and the default
+  **Kelly fraction** (proposed ½).
 - The exact FIFA Round-of-32 bracket mapping (which group placements meet where,
   including how the 8 best third-placed teams are slotted).
