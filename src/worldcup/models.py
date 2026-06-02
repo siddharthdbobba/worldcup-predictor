@@ -9,11 +9,12 @@ class Team:
 
 @dataclass(frozen=True)
 class MatchModelParams:
-    # NOTE: base/scale are uncalibrated v1 defaults; scale=600 yields fairly
-    # aggressive favorite/underdog goal asymmetry. Tune against historical World
-    # Cup results before relying on the forecast (see spec open items).
+    # scale was calibrated against the live 2026 field so the Elo favorite lands
+    # at a realistic ~20% championship probability (scale=600 gave a nonsensical
+    # ~53%). Higher scale => flatter, more upset-prone; lower => more top-heavy.
+    # Still a coarse single-knob fit; refine against historical results in v2.
     base: float = 1.35              # baseline expected goals per team
-    scale: float = 600.0           # Elo scale for goal expectation (sensitivity)
+    scale: float = 2000.0          # Elo->goals sensitivity (calibrated 2026-06)
     host_bump: float = 60.0        # Elo added to a host in its own match
     hosts: tuple[str, ...] = ("United States", "Canada", "Mexico")
 

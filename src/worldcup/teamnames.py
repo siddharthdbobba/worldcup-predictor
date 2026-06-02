@@ -20,6 +20,16 @@ _ALIASES = {
     "côte d'ivoire": "Ivory Coast",
     "cote d'ivoire": "Ivory Coast",
     "ivory coast": "Ivory Coast",
+    # canonical target spellings follow eloratings.net (the ratings join key)
+    "congo dr": "DR Congo",
+    "dr congo": "DR Congo",
+    "democratic republic of the congo": "DR Congo",
+    "curacao": "Curaçao",
+    "curaçao": "Curaçao",
+    "czech republic": "Czechia",
+    "czechia": "Czechia",
+    "cabo verde": "Cape Verde",
+    "cape verde": "Cape Verde",
 }
 
 

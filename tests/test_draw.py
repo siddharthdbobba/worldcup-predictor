@@ -14,6 +14,17 @@ def test_parse_and_validate_ok():
     assert groups["C"][0] == "United States"    # normalized
 
 
+def test_parse_draw_from_kalshi_markets_form():
+    payload = {"markets": [
+        {"event_ticker": "KXWCGROUPWIN-26A", "yes_sub_title": "Mexico"},
+        {"event_ticker": "KXWCGROUPWIN-26A", "yes_sub_title": "Korea Republic"},
+        {"event_ticker": "KXWCGROUPWIN-26B", "yes_sub_title": "USA"},
+    ]}
+    groups = parse_draw(payload)
+    assert groups["A"] == ["Mexico", "South Korea"]   # grouped by letter, canonicalized
+    assert groups["B"] == ["United States"]
+
+
 def test_validate_rejects_wrong_group_count():
     with pytest.raises(ValueError):
         validate_draw({"A": ["a", "b", "c", "d"]})

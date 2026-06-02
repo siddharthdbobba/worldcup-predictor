@@ -19,18 +19,28 @@ class PipelineResult:
     bets: list[BetRec]
 
 
-def run_pipeline(ratings, groups, market, ask, liquidity, *, bankroll,
-                 n_sims=20000, seed=42, w_cap=0.7, K=1e6,
+def run_pipeline(ratings, groups, market, ask, confidence, depth=None, *, bankroll,
+                 n_sims=20000, seed=42, w_cap=0.7, K=0.5,
                  kelly_fraction=0.5) -> PipelineResult:
-    """Simulate, blend, and (if bankroll given) recommend bets."""
-    model = run_simulation(ratings, groups, n=n_sims, seed=seed)
-    blended = blend(model, market, liquidity, w_cap=w_cap, K=K)
+    """Simulate, blend, and (if bankroll given) recommend bets.
+
+    `ratings` may cover more teams than the draw; only the 48 drawn teams are
+    simulated. `confidence` is the market's normalized confidence in [0, 2] (the
+    blend weight; hence the K~0.5 default); `depth` is dollar order-book depth used
+    only to cap stake sizes.
+    """
+    teams = {t for ts in groups.values() for t in ts}
+    missing = sorted(t for t in teams if t not in ratings)
+    if missing:
+        raise ValueError(f"no Elo rating for drawn teams: {missing}")
+    model = run_simulation({t: ratings[t] for t in teams}, groups, n=n_sims, seed=seed)
+    blended = blend(model, market, confidence, w_cap=w_cap, K=K)
     forecasts = [Forecast(t, model[t], market.get(t, 0.0), blended[t]) for t in model]
     forecasts.sort(key=lambda f: f.blended_pct, reverse=True)
     bets: list[BetRec] = []
     if bankroll:
         bets = recommend_bets(model, market, ask, bankroll,
-                              kelly_fraction=kelly_fraction, liquidity=liquidity)
+                              kelly_fraction=kelly_fraction, liquidity=depth)
     return PipelineResult(forecasts=forecasts, bets=bets)
 
 
@@ -68,8 +78,9 @@ async def _t_ratings(args):
 
 @tool("fetch_market_probabilities", "Fetch + de-vig Polymarket and Kalshi prices", {})
 async def _t_markets(args):
-    prob, ask, liq = fetch_market_probabilities()
-    return {"content": [{"type": "text", "text": json.dumps({"prob": prob, "ask": ask, "liquidity": liq})}]}
+    prob, ask, conf, depth = fetch_market_probabilities()
+    return {"content": [{"type": "text", "text": json.dumps(
+        {"prob": prob, "ask": ask, "confidence": conf, "depth": depth})}]}
 
 
 @tool("run_forecast", "Simulate, blend, and recommend bets",
@@ -77,8 +88,9 @@ async def _t_markets(args):
 async def _t_forecast(args):
     groups = fetch_group_draw()
     ratings = fetch_ratings()
-    prob, ask, liq = fetch_market_probabilities()
-    result = run_pipeline(ratings, groups, prob, ask, liq,
+    valid = {t for ts in groups.values() for t in ts}
+    prob, ask, conf, depth = fetch_market_probabilities(valid_teams=valid)
+    result = run_pipeline(ratings, groups, prob, ask, conf, depth,
                           bankroll=args.get("bankroll"),
                           n_sims=int(args.get("n_sims", 20000)),
                           seed=int(args.get("seed", 42)),

@@ -243,13 +243,29 @@ can afford to lose").
 - Per-match xG / lineup-level modeling beyond Elo-derived goals.
 - Web UI (CLI + markdown report only).
 
-## Open items to confirm during implementation
+## Open items — status after live-data wiring (2026-06)
 
-- Exact Elo source + endpoint for `ratings.py` (and a fallback source).
-- Exact liquidity/volume field names in the Polymarket and Kalshi JSON payloads,
-  and whether **ask price / order-book depth** is exposed (needed for the staking
-  execution cap; fall back to last price + a spread assumption if not).
-- Calibration defaults for `BASE`, `S`, `w_cap`, `K`, the host bump, and the default
-  **Kelly fraction** (proposed ½).
-- The exact FIFA Round-of-32 bracket mapping (which group placements meet where,
-  including how the 8 best third-placed teams are slotted).
+Resolved:
+- **Elo source:** `eloratings.net/World.tsv` joined to `en.teams.tsv` (code→name).
+  46/48 teams matched on canonical names automatically; 2 aliases added
+  (Congo DR→DR Congo, Curacao→Curaçao). Parse is sanity-asserted.
+- **Market field names:** Polymarket `gamma-api` uses `groupItemTitle`,
+  `lastTradePrice`, `bestAsk`, `liquidityNum`, `volumeNum` (0–1 prices). Kalshi
+  uses `*_dollars` fields (0–1, **not** cents) and `volume_fp`/`open_interest_fp`;
+  `liquidity_dollars` is 0 in practice. Confidence metric switched to **volume,
+  normalized per-book to [0,1]** (scale-free); blend `K` recalibrated to 0.5 for
+  that [0,2] confidence range (favorites land at w≈0.45–0.55). Polymarket
+  `liquidityNum` is used as the dollar stake-depth cap.
+- **Draw source:** derived from Kalshi `KXWCGROUPWIN` group-winner markets
+  (`event_ticker` → group letter, `yes_sub_title` → team). Committed to
+  `data/draw_2026.json`; live-fetch-with-committed-fallback (group markets close
+  at kickoff). Stale non-qualified markets excluded by intersecting with the 48.
+- **Model calibration:** `scale` calibrated to 2000 against the live field so the
+  Elo favorite lands at a realistic ~20% (was ~53% at 600). `base`=1.35, `w_cap`
+  =0.7, host_bump=60, Kelly fraction=½.
+
+Still open (v2):
+- Tail calibration: the one-knob Elo–Poisson model still over-rates longshots vs
+  the sharp market, yielding more "value bets" than market efficiency supports
+  (Kelly sizes them tiny). A min-edge/EV gate or richer model would tighten this.
+- The exact FIFA Round-of-32 bracket mapping (v1 uses a seeded approximation).
