@@ -110,3 +110,38 @@ def play_knockout(seeded_teams: list[str], ratings: dict[str, float],
         bracket = [play_match_ko(bracket[i], bracket[i + 1], ratings, rng, p)
                    for i in range(0, len(bracket), 2)]
     return bracket[0]
+
+
+DEFAULT_SIMS = 20000
+
+
+def simulate_once(ratings: dict[str, float], groups: dict[str, list[str]],
+                  rng: np.random.Generator, p: MatchModelParams) -> str:
+    """Simulate one full tournament; return the champion's name."""
+    qualifiers: list[tuple[str, dict, int]] = []   # (team, stats, tier 1/2/3)
+    thirds: list[tuple[str, dict]] = []
+    for teams in groups.values():
+        ranked, stats = simulate_group(teams, ratings, rng, p)
+        qualifiers.append((ranked[0], stats[ranked[0]], 1))
+        qualifiers.append((ranked[1], stats[ranked[1]], 2))
+        thirds.append((ranked[2], stats[ranked[2]]))
+    best_thirds = set(rank_thirds(thirds, rng))
+    for name, stats in thirds:
+        if name in best_thirds:
+            qualifiers.append((name, stats, 3))
+    # Seed 1..32: tier first (winners, runners-up, thirds), then pts/GD/GF.
+    seeded = [q[0] for q in sorted(
+        qualifiers, key=lambda q: (q[2], *_rank_key(q[1], rng)))]
+    return play_knockout(seeded, ratings, rng, p)
+
+
+def run_simulation(ratings: dict[str, float], groups: dict[str, list[str]],
+                   n: int = DEFAULT_SIMS, seed: int = 42,
+                   params: MatchModelParams | None = None) -> dict[str, float]:
+    """Run n tournaments; return {team: championship_probability} over ALL teams."""
+    p = params or MatchModelParams()
+    rng = np.random.default_rng(seed)
+    counts: Counter[str] = Counter()
+    for _ in range(n):
+        counts[simulate_once(ratings, groups, rng, p)] += 1
+    return {team: counts.get(team, 0) / n for team in ratings}
