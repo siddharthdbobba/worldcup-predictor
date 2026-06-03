@@ -95,10 +95,16 @@ def play_match_ko(a: str, b: str, ratings: dict[str, float],
         return a
     if gb > ga:
         return b
-    # Tie -> extra time/penalties: strength-weighted flip, applying the host bump
-    # consistently with sample_goals so hosts keep their advantage in shootouts too.
-    return a if rng.random() < elo_winprob(_eff_rating(a, ratings, p),
-                                           _eff_rating(b, ratings, p)) else b
+    # Tie -> extra time/penalties: resolve with a strength-weighted flip whose bias
+    # comes from the SAME goals model (`scale`) as regulation — A's share of expected
+    # goals, lam_a / (lam_a + lam_b). Using the standard Elo /400 here instead (as a
+    # prior version did) would snap drawn knockouts back to a much steeper favorite
+    # bias than the calibrated `scale` implies, inflating favorites' title odds — the
+    # exact distortion the 600->2000 scale recalibration removed. Host bump is applied
+    # via _eff_rating so hosts keep their edge in shootouts too.
+    lam_a, lam_b = expected_goals(_eff_rating(a, ratings, p),
+                                  _eff_rating(b, ratings, p), p)
+    return a if rng.random() < lam_a / (lam_a + lam_b) else b
 
 
 def play_knockout(seeded_teams: list[str], ratings: dict[str, float],
