@@ -50,6 +50,7 @@ def run_pipeline(ratings, groups, market, ask, confidence, depth=None, *, bankro
 # Verified against installed claude-agent-sdk 0.2.87: tool, create_sdk_mcp_server,
 # ClaudeAgentOptions (system_prompt/mcp_servers/allowed_tools), and query all match.
 import json
+from pathlib import Path
 
 from claude_agent_sdk import (  # type: ignore
     ClaudeAgentOptions, create_sdk_mcp_server, query, tool,
@@ -60,11 +61,15 @@ from worldcup.markets import fetch_market_probabilities
 from worldcup.ratings import fetch_ratings
 from worldcup.report import build_markdown, print_report
 
-SYSTEM_PROMPT = """You are a World Cup forecasting agent. Run these steps in order
-and narrate each: (1) fetch_group_draw — STOP if it is not 12 groups of 4;
-(2) fetch_team_ratings; (3) fetch_market_probabilities; (4) run_forecast with the
-user's bankroll. Never invent ratings or prices. If a step fails, report the error
-plainly. Finish by presenting the forecast table and betting card."""
+SYSTEM_PROMPT = """You are a World Cup forecasting agent. Call run_forecast with the
+user's bankroll: in one step it fetches the group draw (STOP if it is not 12 groups
+of 4), the team ratings, and the Polymarket/Kalshi prices, then simulates, blends,
+and recommends bets. Do NOT call the individual fetch_* tools first — run_forecast
+already fetches everything, so calling them too would fetch the same data twice. The
+fetch_group_draw / fetch_team_ratings / fetch_market_probabilities tools are there
+only if you need to inspect a single source on its own. Never invent ratings or
+prices. If a step fails, report the error plainly. Finish by presenting the forecast
+table and betting card."""
 
 
 @tool("fetch_group_draw", "Fetch and validate the 2026 group draw (12x4)", {})
@@ -101,7 +106,9 @@ async def _t_forecast(args):
                           min_edge=float(args.get("min_edge", 0.05)))
     print_report(result.forecasts, result.bets, args.get("bankroll"))
     md = build_markdown(result.forecasts, result.bets, args.get("bankroll"))
-    return {"content": [{"type": "text", "text": md}]}
+    out_path = Path("worldcup_report.md")
+    out_path.write_text(md)  # the "saved markdown report" the spec promises
+    return {"content": [{"type": "text", "text": f"{md}\n\n_Saved to {out_path}._"}]}
 
 
 def build_options() -> ClaudeAgentOptions:
