@@ -1,7 +1,7 @@
 # Method A — Cross-Book Arbitrage (Polymarket × Kalshi)
 
 **Date:** 2026-06-02
-**Status:** Design pending spec review
+**Status:** Implemented 2026-06-02
 **Target market:** 2026 FIFA World Cup **outright-winner** market (48 teams), the
 same market `markets.py` already fetches from Polymarket and Kalshi.
 
