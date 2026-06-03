@@ -136,7 +136,8 @@ def test_find_ev_bets_flags_underpriced_book():
     spain = next(b for b in bets if b.team == "Spain")
     assert spain.venue == "polymarket" and spain.side == "YES"
     assert math.isclose(spain.ev_pct, 0.14 / 0.10 - 1.0)
-    assert 0 < spain.stake <= 1000
+    assert math.isclose(spain.stake, 22.22, rel_tol=1e-3)
+    assert math.isclose(spain.potential_profit, 199.98, rel_tol=1e-3)
 
 
 def test_find_ev_bets_none_when_no_edge():
