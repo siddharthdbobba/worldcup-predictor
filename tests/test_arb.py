@@ -146,3 +146,24 @@ def test_find_ev_bets_none_when_no_edge():
     consensus = {"Spain": 0.15}            # both asks above fair -> no +EV YES buy
     assert find_ev_bets(poly, kalshi, consensus, poly_balance=1000,
                         kalshi_balance=1000, max_leg_stake=1000) == []
+
+
+from worldcup.arb import dutch_book
+
+
+def test_dutch_book_flags_when_field_below_one():
+    # Two-team toy world; cheapest YES per team sums under 1.
+    poly = {"A": {"ask": 0.40}, "B": {"ask": 0.55}}
+    kalshi = {"A": {"ask": 0.45}, "B": {"ask": 0.50}}
+    db = dutch_book(poly, kalshi, kalshi_fee_rate=0.0, poly_fee_rate=0.0)
+    # min(0.40,0.45)=0.40 (poly A) + min(0.55,0.50)=0.50 (kalshi B) = 0.90
+    assert math.isclose(db.field_sum, 0.90)
+    assert math.isclose(db.gap, 0.10) and db.is_arb is True
+    assert ("A", "polymarket", 0.40) in db.legs and ("B", "kalshi", 0.50) in db.legs
+
+
+def test_dutch_book_not_arb_for_normal_field():
+    poly = {"A": {"ask": 0.60}, "B": {"ask": 0.60}}
+    kalshi = {"A": {"ask": 0.62}, "B": {"ask": 0.61}}
+    db = dutch_book(poly, kalshi, kalshi_fee_rate=0.0, poly_fee_rate=0.0)
+    assert db.field_sum > 1.0 and db.is_arb is False

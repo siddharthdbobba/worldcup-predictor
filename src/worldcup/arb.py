@@ -146,7 +146,7 @@ def size_locks(cands: list[_Cand], *, poly_balance: float, kalshi_balance: float
     return recs
 
 
-from worldcup.models import EvBetRec
+from worldcup.models import EvBetRec, DutchBook
 
 
 def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
@@ -186,3 +186,26 @@ def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
             potential_profit=round(stake * (1.0 - ask) / ask, 2)))
     bets.sort(key=lambda b: b.ev_pct, reverse=True)
     return bets
+
+
+def dutch_book(poly: dict[str, dict], kalshi: dict[str, dict], *,
+               kalshi_fee_rate: float = 0.07, poly_fee_rate: float = 0.0) -> DutchBook:
+    """Cover the whole field: cheapest YES (incl. fee) per team across both books.
+    Risk-free iff the field sum is below $1."""
+    legs: list = []
+    field_sum = 0.0
+    for team in sorted(set(poly) | set(kalshi)):
+        options = []
+        if team in poly and 0.0 < poly[team].get("ask", 0.0) < 1.0:
+            a = poly[team]["ask"]
+            options.append((a + _fee(poly_fee_rate, a), VENUE_POLY, a))
+        if team in kalshi and 0.0 < kalshi[team].get("ask", 0.0) < 1.0:
+            a = kalshi[team]["ask"]
+            options.append((a + _fee(kalshi_fee_rate, a), VENUE_KALSHI, a))
+        if not options:
+            continue
+        cost, venue, raw = min(options, key=lambda o: o[0])
+        field_sum += cost
+        legs.append((team, venue, raw))
+    gap = 1.0 - field_sum
+    return DutchBook(field_sum=field_sum, gap=gap, is_arb=gap > 0.0, legs=legs)
