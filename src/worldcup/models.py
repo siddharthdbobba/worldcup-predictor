@@ -37,3 +37,44 @@ class BetRec:
     ev_pct: float
     stake: float
     potential_profit: float
+
+
+@dataclass
+class ArbRec:
+    """One sized risk-free lock: buy `contracts` YES on yes_venue and the same
+    number of NO on no_venue. Payout is identical whoever wins."""
+    team: str
+    yes_venue: str          # "polymarket" | "kalshi"
+    no_venue: str
+    yes_ask: float          # a: price paid per YES contract
+    no_ask: float           # b: price paid per NO contract
+    contracts: int          # floored from the LP solution
+    stake_yes: float
+    stake_no: float
+    total_cost: float       # stake_yes + stake_no + fees
+    guaranteed_profit: float
+    roc: float              # guaranteed_profit / total_cost
+    annual_roc: float       # roc annualized to settlement
+
+
+@dataclass
+class EvBetRec:
+    """A +EV (not risk-free) cross-book bet: the cheaper book underprices a team
+    vs. the two-book consensus. Sized by fractional Kelly."""
+    team: str
+    venue: str
+    side: str               # "YES"
+    ask: float
+    fair: float             # consensus probability
+    ev_pct: float           # fair/ask - 1
+    stake: float
+    potential_profit: float
+
+
+@dataclass
+class DutchBook:
+    """Whole-field check: buy the cheapest YES per team across both books."""
+    field_sum: float        # Σ cheapest YES ask (incl. fee) over all teams
+    gap: float              # 1 - field_sum  (positive => risk-free arb)
+    is_arb: bool
+    legs: list              # [(team, venue, price), ...]
