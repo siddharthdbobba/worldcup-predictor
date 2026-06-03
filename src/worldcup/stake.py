@@ -89,6 +89,9 @@ def kelly_allocate(bets: list[dict], bankroll: float, kelly_fraction: float = 0.
         stake = frac * bankroll
         cap = liquidity.get(b["team"])
         if cap is not None:
+            # Cap to available depth. Capital freed by a binding cap is NOT
+            # re-optimized onto other +EV bets, so this only ever under-stakes
+            # (conservative — safe for real money), never over-stakes.
             stake = min(stake, cap)
         if stake <= 1e-6:
             continue

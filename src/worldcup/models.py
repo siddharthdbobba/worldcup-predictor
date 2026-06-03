@@ -15,7 +15,9 @@ class MatchModelParams:
     # Still a coarse single-knob fit; refine against historical results in v2.
     base: float = 1.35              # baseline expected goals per team
     scale: float = 2000.0          # Elo->goals sensitivity (calibrated 2026-06)
-    host_bump: float = 60.0        # Elo added to a host in its own match
+    host_bump: float = 60.0        # Elo added to a host in ALL its matches (v1
+                                   # simplification: per-match venue isn't modeled,
+                                   # so neutral-site late-stage games get it too)
     hosts: tuple[str, ...] = ("United States", "Canada", "Mexico")
 
 

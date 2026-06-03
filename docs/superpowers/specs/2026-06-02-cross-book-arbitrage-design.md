@@ -56,7 +56,8 @@ one. With **equal contracts on both legs**, payout is identical whoever wins:
 
 - Buy `N` YES + `N` NO → payout `= N` in **both** outcomes.
 - Cost `= N·(a + b) + fees`. **Guaranteed profit `= N·(1 − a − b) − fees`.**
-- **Return on capital `= (1 − a − b − fee_per_pair) / (a + b)`.**
+- **Return on capital `= (1 − a − b − fee_per_pair) / (a + b + fee_per_pair)`** — the
+  denominator is total capital outlaid including fees (matches `profit / total_cost` in code).
 
 Given a budget `C` for one opportunity: `N = C/(a+b)`, money on YES leg `= a·C/(a+b)`,
 money on NO leg `= b·C/(a+b)`. (The LP below generalizes this across all teams and
