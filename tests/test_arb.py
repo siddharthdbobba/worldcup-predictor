@@ -248,9 +248,9 @@ def test_run_arb_cli_prints_card(monkeypatch, capsys):
     import main as cli
     monkeypatch.setattr(cli, "fetch_group_draw", lambda: {"A": ["France", "Spain", "Brazil", "Japan"]})
     monkeypatch.setattr(cli, "fetch_books", lambda valid_teams=None: (POLY, KALSHI))
-    monkeypatch.setattr(cli, "fetch_market_probabilities",
-                        lambda valid_teams=None: ({"France": 0.22, "Spain": 0.13, "Brazil": 0.205},
-                                                  {}, {}, {}))
+    monkeypatch.setattr(cli, "combine_markets",
+                        lambda poly, kalshi, valid_teams=None: (
+                            {"France": 0.22, "Spain": 0.13, "Brazil": 0.205}, {}, {}, {}))
     cli.run_arb_cli(poly_balance=10_000, kalshi_balance=10_000, kalshi_fee_rate=0.07,
                     poly_fee_rate=0.0, min_profit=0.02, max_leg_stake=1000.0,
                     days_to_settlement=47, kelly_fraction=0.5,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from rich.console import Console
 from rich.table import Table
 
-from worldcup.arb import ArbResult
+from worldcup.arb import ArbResult, VENUE_POLY
 from worldcup.models import BetRec, Forecast
 
 DISCLAIMER = ("Model-based estimate; prediction markets are highly efficient. "
@@ -95,6 +95,13 @@ def build_arb_markdown(res: ArbResult, poly_balance: float,
                   " — fund by contract count, not by the per-leg $ stakes"
                   " (those exclude trading fees, which are included in Cost)."
                   " Equal contracts on both legs is what makes the payout identical either way."]
+        if any(r.no_venue == VENUE_POLY for r in res.locks):
+            lines += ["",
+                      "> **Derived-NO caveat:** Locks whose NO leg is on Polymarket use a"
+                      " *derived* NO price (1 − Polymarket YES bid), since Polymarket has no"
+                      " directly quoted NO. A stale or wide Poly bid can manufacture a phantom"
+                      " lock — verify the live Polymarket NO quote before placing those."
+                      " Locks with NO on Kalshi use a directly quoted price and are unaffected."]
 
     if res.ev_bets:
         lines += ["", "## +EV cross-book bets (NOT risk-free)", "",
@@ -140,6 +147,11 @@ def print_arb_report(res: ArbResult, poly_balance: float, kalshi_balance: float,
             " — fund by contract count, not by the per-leg $ stakes"
             " (those exclude trading fees, which are included in Cost)."
             " Equal contracts on both legs is what makes the payout identical either way.")
+        if any(r.no_venue == VENUE_POLY for r in res.locks):
+            console.print(
+                "[yellow]Derived-NO caveat:[/yellow] Locks with NO on Polymarket use a derived"
+                " NO price (1 − Poly YES bid); a stale/wide Poly bid can fake a lock — verify the"
+                " live Polymarket NO quote before placing. NO-on-Kalshi locks are unaffected.")
     if res.ev_bets:
         et = Table(title="+EV cross-book bets (NOT risk-free)")
         for col in ("Team", "Venue", "Side", "Ask", "Fair", "EV", "Stake", "Profit"):

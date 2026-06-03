@@ -9,7 +9,7 @@ from rich.console import Console
 from worldcup.agent import run_agent
 from worldcup.arb import run_arb
 from worldcup.draw import fetch_group_draw
-from worldcup.markets import fetch_books, fetch_market_probabilities
+from worldcup.markets import combine_markets, fetch_books
 from worldcup.report import print_arb_report
 
 
@@ -20,7 +20,10 @@ def run_arb_cli(*, poly_balance, kalshi_balance, kalshi_fee_rate, poly_fee_rate,
     groups = fetch_group_draw()
     valid = {t for ts in groups.values() for t in ts}
     poly, kalshi = fetch_books(valid_teams=valid)
-    consensus, _ask, _conf, _depth = fetch_market_probabilities(valid_teams=valid)
+    # Derive the consensus from the SAME books we fetched (one round-trip per venue),
+    # rather than re-fetching — avoids extra latency and quote-skew between the lock
+    # prices and the EV-tier consensus.
+    consensus, _ask, _conf, _depth = combine_markets(poly, kalshi, valid_teams=valid)
     res = run_arb(poly, kalshi, consensus, poly_balance=poly_balance,
                   kalshi_balance=kalshi_balance, max_leg_stake=max_leg_stake,
                   days_to_settlement=days_to_settlement, kalshi_fee_rate=kalshi_fee_rate,
