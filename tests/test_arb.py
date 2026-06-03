@@ -167,3 +167,28 @@ def test_dutch_book_not_arb_for_normal_field():
     kalshi = {"A": {"ask": 0.62}, "B": {"ask": 0.61}}
     db = dutch_book(poly, kalshi, kalshi_fee_rate=0.0, poly_fee_rate=0.0)
     assert db.field_sum > 1.0 and db.is_arb is False
+
+
+def test_dutch_book_fee_flips_venue_choice():
+    """Fee-adjusted cost determines venue selection, not raw ask.
+
+    Single-team world, team "A":
+      Poly:   ask=0.40, poly_fee_rate=0.0
+              cost = 0.40 + 0.0*0.40*0.60 = 0.40
+      Kalshi: ask=0.39, kalshi_fee_rate=0.50
+              fee  = 0.50 * 0.39 * (1 - 0.39) = 0.50 * 0.39 * 0.61 = 0.11895
+              cost = 0.39 + 0.11895 = 0.50895
+
+    Kalshi has the cheaper RAW ask (0.39 < 0.40), but after fees its cost
+    (0.50895) exceeds Poly's (0.40), so Poly must be chosen.
+    field_sum = 0.40 (exact, since poly_fee_rate=0).
+    """
+    poly = {"A": {"ask": 0.40}}
+    kalshi = {"A": {"ask": 0.39}}
+    db = dutch_book(poly, kalshi, kalshi_fee_rate=0.50, poly_fee_rate=0.0)
+
+    # Poly cost:   0.40 + 0.0*0.40*0.60  = 0.40
+    # Kalshi cost: 0.39 + 0.50*0.39*0.61 = 0.50895
+    # Poly is cheaper after fees despite the higher raw ask.
+    assert ("A", "polymarket", 0.40) in db.legs
+    assert math.isclose(db.field_sum, 0.40, rel_tol=1e-9)
