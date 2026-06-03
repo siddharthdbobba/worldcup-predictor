@@ -16,7 +16,20 @@ def test_dataclasses_construct():
     assert d.is_arb is False and d.legs[0][0] == "France"
 
 
-from worldcup.arb import find_locks, VENUE_POLY, VENUE_KALSHI
+from worldcup.arb import find_locks, VENUE_POLY, VENUE_KALSHI, _fee
+
+
+def test_fee_is_ceiled_up_to_the_cent():
+    """_fee must round UP to the nearest cent (conservative: never understate)."""
+    # 0.07 * 0.71 * 0.29 = 0.014441 → ceil to 0.02
+    assert math.isclose(_fee(0.07, 0.71), 0.02), (
+        f"Expected 0.02 (ceiled cent), got {_fee(0.07, 0.71)}"
+    )
+    # zero rate → zero fee regardless of price
+    assert _fee(0.0, 0.40) == 0.0
+    # result must always be >= the raw continuous value (never understates)
+    raw = 0.07 * 0.5 * 0.5
+    assert _fee(0.07, 0.5) >= raw
 
 # Crafted book pair with a clear orientation-A lock on France.
 # Poly YES 0.18 (bid 0.16); Kalshi YES 0.30 (bid 0.28), NO 0.71.
@@ -38,8 +51,8 @@ def test_find_locks_picks_orientation_a():
     france = next(c for c in cands if c.team == "France")
     assert france.yes_venue == VENUE_POLY and france.no_venue == VENUE_KALSHI
     assert math.isclose(france.a, 0.18) and math.isclose(france.b, 0.71)
-    # raw 1-0.18-0.71 = 0.11; kalshi fee 0.07*0.71*0.29 ≈ 0.0144; profit ≈ 0.0956
-    assert 0.09 < france.profit < 0.10
+    # raw 1-0.18-0.71 = 0.11; kalshi fee ceil(0.07*0.71*0.29*100)/100 = 0.02; profit = 0.09
+    assert math.isclose(france.profit, 0.09)
 
 
 def test_find_locks_min_profit_gate_filters_thin():
@@ -176,19 +189,20 @@ def test_dutch_book_fee_flips_venue_choice():
       Poly:   ask=0.40, poly_fee_rate=0.0
               cost = 0.40 + 0.0*0.40*0.60 = 0.40
       Kalshi: ask=0.39, kalshi_fee_rate=0.50
-              fee  = 0.50 * 0.39 * (1 - 0.39) = 0.50 * 0.39 * 0.61 = 0.11895
-              cost = 0.39 + 0.11895 = 0.50895
+              fee  = ceil(0.50 * 0.39 * 0.61 * 100) / 100
+                   = ceil(11.895) / 100 = 12 / 100 = 0.12
+              cost = 0.39 + 0.12 = 0.51
 
     Kalshi has the cheaper RAW ask (0.39 < 0.40), but after fees its cost
-    (0.50895) exceeds Poly's (0.40), so Poly must be chosen.
+    (0.51) exceeds Poly's (0.40), so Poly must be chosen.
     field_sum = 0.40 (exact, since poly_fee_rate=0).
     """
     poly = {"A": {"ask": 0.40}}
     kalshi = {"A": {"ask": 0.39}}
     db = dutch_book(poly, kalshi, kalshi_fee_rate=0.50, poly_fee_rate=0.0)
 
-    # Poly cost:   0.40 + 0.0*0.40*0.60  = 0.40
-    # Kalshi cost: 0.39 + 0.50*0.39*0.61 = 0.50895
+    # Poly cost:   0.40 + 0.0*0.40*0.60 = 0.40
+    # Kalshi cost: 0.39 + ceil(0.50*0.39*0.61*100)/100 = 0.39 + 0.12 = 0.51
     # Poly is cheaper after fees despite the higher raw ask.
     assert ("A", "polymarket", 0.40) in db.legs
     assert math.isclose(db.field_sum, 0.40, rel_tol=1e-9)

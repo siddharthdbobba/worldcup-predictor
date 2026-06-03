@@ -34,8 +34,11 @@ class _Cand:
 
 
 def _fee(rate: float, price: float) -> float:
-    """Per-contract trading fee ~ rate * p * (1 - p) (Kalshi's shape)."""
-    return rate * price * (1.0 - price)
+    """Per-contract trading fee, conservatively rounded UP to the next cent so a
+    'risk-free' lock never understates fees: ceil(rate * p * (1-p)) to $0.01.
+    (Kalshi rounds the whole order up to a cent; per-contract ceil is a safe
+    over-estimate — we'd rather miss a marginal arb than claim a false one.)"""
+    return math.ceil(rate * price * (1.0 - price) * 100.0) / 100.0
 
 
 def _cap(depth: float, max_leg_stake: float) -> float:
