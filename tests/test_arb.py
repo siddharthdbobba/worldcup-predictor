@@ -60,3 +60,64 @@ def test_find_locks_depth_caps_from_book_and_max_leg():
     # YES leg on Poly: depth 250000 vs cap 500 -> 500; NO leg on Kalshi: depth 0 -> cap 500
     assert math.isclose(france.yes_cap, 500.0)
     assert math.isclose(france.no_cap, 500.0)
+
+
+from worldcup.arb import size_locks
+
+
+def test_size_locks_equal_payout_per_arb():
+    cands = find_locks(POLY, KALSHI, min_profit=0.02, max_leg_stake=1000.0)
+    recs = size_locks(cands, poly_balance=10_000, kalshi_balance=10_000,
+                      days_to_settlement=47)
+    france = next(r for r in recs if r.team == "France")
+    # Equal contracts on both legs => identical payout (= contracts) either way.
+    payout_if_france_wins = france.contracts          # YES pays 1 each
+    payout_if_france_loses = france.contracts         # NO pays 1 each
+    assert payout_if_france_wins == payout_if_france_loses
+    assert france.guaranteed_profit > 0
+    assert math.isclose(france.total_cost,
+                        france.stake_yes + france.stake_no
+                        + france.contracts * (next(c.fee for c in cands if c.team == "France")),
+                        rel_tol=1e-6)
+
+
+def test_size_locks_respects_venue_balances():
+    cands = find_locks(POLY, KALSHI, min_profit=0.02, max_leg_stake=1e9)
+    recs = size_locks(cands, poly_balance=18.0, kalshi_balance=1e9,
+                      days_to_settlement=47)
+    # Whichever locks the LP funds, total $ drawn from Polymarket must respect $18.
+    poly_spent = sum(r.stake_yes if r.yes_venue == VENUE_POLY else r.stake_no
+                     for r in recs)
+    assert poly_spent <= 18.0 + 1e-6
+
+
+def test_size_locks_respects_depth_cap():
+    # max_leg_stake applies to BOTH legs; the pricier NO leg (0.71) binds first:
+    # 7.10 / 0.71 = 10 contracts (YES leg would allow 7.10/0.18 = 39).
+    cands = find_locks(POLY, KALSHI, min_profit=0.02, max_leg_stake=7.10)
+    recs = size_locks(cands, poly_balance=1e9, kalshi_balance=1e9,
+                      days_to_settlement=47)
+    france = next(r for r in recs if r.team == "France")
+    assert france.contracts == 10
+    assert france.stake_no <= 7.10 + 1e-6
+
+
+def test_size_locks_contracts_are_integers():
+    cands = find_locks(POLY, KALSHI, min_profit=0.02, max_leg_stake=1000.0)
+    recs = size_locks(cands, poly_balance=10_000, kalshi_balance=10_000,
+                      days_to_settlement=47)
+    assert all(isinstance(r.contracts, int) and r.contracts >= 1 for r in recs)
+
+
+def test_size_locks_annualizes_roc():
+    cands = find_locks(POLY, KALSHI, min_profit=0.02, max_leg_stake=1000.0)
+    recs = size_locks(cands, poly_balance=10_000, kalshi_balance=10_000,
+                      days_to_settlement=47)
+    r = recs[0]
+    expected = (1.0 + r.roc) ** (365.0 / 47) - 1.0
+    assert math.isclose(r.annual_roc, expected, rel_tol=1e-9)
+
+
+def test_size_locks_empty():
+    assert size_locks([], poly_balance=100, kalshi_balance=100,
+                      days_to_settlement=47) == []

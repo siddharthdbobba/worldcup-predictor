@@ -84,3 +84,63 @@ def find_locks(poly: dict[str, dict], kalshi: dict[str, dict], *,
         if viable:
             out.append(max(viable, key=lambda c: c.profit))
     return out
+
+
+from scipy.optimize import linprog
+
+from worldcup.models import ArbRec
+
+
+def size_locks(cands: list[_Cand], *, poly_balance: float, kalshi_balance: float,
+               days_to_settlement: int) -> list[ArbRec]:
+    """Global LP: maximize Σ xᵢ·profitᵢ over contract-pairs xᵢ ≥ 0, subject to
+    Polymarket and Kalshi balance limits; per-leg depth caps become bounds.
+
+    Fees are charged on the venue that levies them, so they consume that venue's
+    balance too. The LP is continuous; we floor each xᵢ to whole contracts after.
+    """
+    if not cands:
+        return []
+
+    c = [-cand.profit for cand in cands]                 # minimize -profit
+    poly_row, kalshi_row, bounds = [], [], []
+    for cand in cands:
+        if cand.yes_venue == VENUE_POLY:                 # YES on Poly, NO on Kalshi
+            poly_cost, kalshi_cost = cand.a, cand.b
+        else:                                            # YES on Kalshi, NO on Poly
+            poly_cost, kalshi_cost = cand.b, cand.a
+        poly_row.append(poly_cost + cand.fee_poly)
+        kalshi_row.append(kalshi_cost + cand.fee_kalshi)
+        ub_yes = cand.yes_cap / cand.a if cand.a > 0 else math.inf
+        ub_no = cand.no_cap / cand.b if cand.b > 0 else math.inf
+        bounds.append((0.0, min(ub_yes, ub_no)))
+
+    res = linprog(c, A_ub=[poly_row, kalshi_row],
+                  b_ub=[poly_balance, kalshi_balance],
+                  bounds=bounds, method="highs")
+    if not res.success:
+        return []
+
+    recs: list[ArbRec] = []
+    for cand, x in zip(cands, res.x):
+        contracts = int(math.floor(x + 1e-9))
+        if contracts <= 0:
+            continue
+        stake_yes = contracts * cand.a
+        stake_no = contracts * cand.b
+        fee_cost = contracts * cand.fee
+        total_cost = stake_yes + stake_no + fee_cost
+        profit = contracts * cand.profit
+        roc = profit / total_cost if total_cost > 0 else 0.0
+        if days_to_settlement and days_to_settlement > 0:
+            annual = (1.0 + roc) ** (365.0 / days_to_settlement) - 1.0
+        else:
+            annual = roc
+        recs.append(ArbRec(
+            team=cand.team, yes_venue=cand.yes_venue, no_venue=cand.no_venue,
+            yes_ask=cand.a, no_ask=cand.b, contracts=contracts,
+            stake_yes=round(stake_yes, 2), stake_no=round(stake_no, 2),
+            total_cost=total_cost,  # kept at full precision; rounding breaks rel_tol=1e-6 invariant
+            guaranteed_profit=round(profit, 2), roc=roc, annual_roc=annual))
+    recs.sort(key=lambda r: r.guaranteed_profit, reverse=True)
+    return recs
