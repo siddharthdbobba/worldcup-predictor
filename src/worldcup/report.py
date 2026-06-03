@@ -5,6 +5,7 @@ from __future__ import annotations
 from rich.console import Console
 from rich.table import Table
 
+from worldcup.arb import ArbResult
 from worldcup.models import BetRec, Forecast
 
 DISCLAIMER = ("Model-based estimate; prediction markets are highly efficient. "
@@ -60,3 +61,83 @@ def print_report(forecasts: list[Forecast], bets: list[BetRec],
                        f"{b.edge:+.1%}", f"{b.ev_pct:+.1%}", f"${b.stake:,.2f}", f"${b.potential_profit:,.2f}")
         console.print(bt)
     console.print(f"\n[dim]{DISCLAIMER}[/dim]")
+
+
+ARB_DISCLAIMER = (
+    "Risk-free only if BOTH legs fill at the quoted prices — place them near-"
+    "simultaneously (leg-timing risk). Capital is locked on both venues until the "
+    "tournament settles. Depth caps are user-set, not measured. For education only — "
+    "never stake more than you can afford to lose.")
+
+
+def build_arb_markdown(res: ArbResult, poly_balance: float,
+                       kalshi_balance: float) -> str:
+    """Markdown for the arb card: locks, EV fallback, Dutch-book line, disclaimer."""
+    lines = ["# Method A — Cross-Book Arbitrage", "",
+             f"_Polymarket balance: ${poly_balance:,.2f} · "
+             f"Kalshi balance: ${kalshi_balance:,.2f}_", ""]
+
+    lines += ["## Risk-free locks", ""]
+    if not res.locks:
+        lines.append("No risk-free arbitrage at current prices.")
+    else:
+        lines += ["| Team | YES @ | NO @ | Contracts | Stake YES | Stake NO | Cost | Profit | ROC | Annual |",
+                  "|------|-------|------|----------:|----------:|---------:|-----:|-------:|----:|-------:|"]
+        for r in res.locks:
+            lines.append(
+                f"| {r.team} | {r.yes_venue} {r.yes_ask:.2f} | {r.no_venue} {r.no_ask:.2f} | "
+                f"{r.contracts} | ${r.stake_yes:,.2f} | ${r.stake_no:,.2f} | ${r.total_cost:,.2f} | "
+                f"${r.guaranteed_profit:,.2f} | {r.roc:.2%} | {r.annual_roc:.1%} |")
+        tot = sum(r.guaranteed_profit for r in res.locks)
+        lines += ["", f"_Total guaranteed profit: ${tot:,.2f}_"]
+
+    if res.ev_bets:
+        lines += ["", "## +EV cross-book bets (NOT risk-free)", "",
+                  "| Team | Venue | Side | Ask | Fair | EV | Stake | Profit |",
+                  "|------|-------|------|----:|-----:|---:|------:|-------:|"]
+        for b in res.ev_bets:
+            lines.append(
+                f"| {b.team} | {b.venue} | {b.side} | {b.ask:.2f} | {b.fair:.1%} | "
+                f"{b.ev_pct:+.1%} | ${b.stake:,.2f} | ${b.potential_profit:,.2f} |")
+
+    if res.dutch is not None:
+        d = res.dutch
+        verdict = f"ARB (gap {d.gap:+.3f})" if d.is_arb else f"no arb (gap {d.gap:+.3f})"
+        lines += ["", "## Whole-field Dutch book",
+                  f"Cheapest-YES field sum: {d.field_sum:.3f} — {verdict}."]
+
+    lines += ["", f"> {ARB_DISCLAIMER}"]
+    return "\n".join(lines) + "\n"
+
+
+def print_arb_report(res: ArbResult, poly_balance: float, kalshi_balance: float,
+                     console: Console | None = None) -> None:
+    """Pretty-print the arb card to the terminal."""
+    console = console or Console()
+    if not res.locks:
+        console.print("[bold]No risk-free arbitrage[/bold] at current prices.")
+    else:
+        t = Table(title="Method A — risk-free locks")
+        for col in ("Team", "YES @", "NO @", "Contracts", "Stake YES",
+                    "Stake NO", "Cost", "Profit", "ROC", "Annual"):
+            t.add_column(col, justify="left" if col == "Team" else "right")
+        for r in res.locks:
+            t.add_row(r.team, f"{r.yes_venue} {r.yes_ask:.2f}",
+                      f"{r.no_venue} {r.no_ask:.2f}", str(r.contracts),
+                      f"${r.stake_yes:,.2f}", f"${r.stake_no:,.2f}",
+                      f"${r.total_cost:,.2f}", f"${r.guaranteed_profit:,.2f}",
+                      f"{r.roc:.2%}", f"{r.annual_roc:.1%}")
+        console.print(t)
+    if res.ev_bets:
+        et = Table(title="+EV cross-book bets (NOT risk-free)")
+        for col in ("Team", "Venue", "Side", "Ask", "Fair", "EV", "Stake", "Profit"):
+            et.add_column(col, justify="left" if col == "Team" else "right")
+        for b in res.ev_bets:
+            et.add_row(b.team, b.venue, b.side, f"{b.ask:.2f}", f"{b.fair:.1%}",
+                       f"{b.ev_pct:+.1%}", f"${b.stake:,.2f}", f"${b.potential_profit:,.2f}")
+        console.print(et)
+    if res.dutch is not None:
+        d = res.dutch
+        verdict = f"ARB (gap {d.gap:+.3f})" if d.is_arb else f"no arb (gap {d.gap:+.3f})"
+        console.print(f"[dim]Dutch-book field sum {d.field_sum:.3f} — {verdict}[/dim]")
+    console.print(f"\n[dim]{ARB_DISCLAIMER}[/dim]")
