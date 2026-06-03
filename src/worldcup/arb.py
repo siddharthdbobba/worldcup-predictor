@@ -13,6 +13,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from scipy.optimize import linprog
+
+from worldcup.models import ArbRec, DutchBook, EvBetRec
+
 VENUE_POLY = "polymarket"
 VENUE_KALSHI = "kalshi"
 
@@ -89,11 +93,6 @@ def find_locks(poly: dict[str, dict], kalshi: dict[str, dict], *,
     return out
 
 
-from scipy.optimize import linprog
-
-from worldcup.models import ArbRec
-
-
 def size_locks(cands: list[_Cand], *, poly_balance: float, kalshi_balance: float,
                days_to_settlement: int) -> list[ArbRec]:
     """Global LP: maximize Σ xᵢ·profitᵢ over contract-pairs xᵢ ≥ 0, subject to
@@ -147,9 +146,6 @@ def size_locks(cands: list[_Cand], *, poly_balance: float, kalshi_balance: float
             guaranteed_profit=round(profit, 2), roc=roc, annual_roc=annual))
     recs.sort(key=lambda r: r.guaranteed_profit, reverse=True)
     return recs
-
-
-from worldcup.models import EvBetRec, DutchBook
 
 
 def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
