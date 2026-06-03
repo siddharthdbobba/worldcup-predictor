@@ -53,3 +53,27 @@ def test_build_arb_markdown_handles_no_locks():
     res = ArbResult(locks=[], ev_bets=[], dutch=None)
     md = build_arb_markdown(res, poly_balance=100, kalshi_balance=100)
     assert "no risk-free arbitrage" in md.lower()
+
+
+import io
+from rich.console import Console
+from worldcup.report import print_arb_report
+
+
+def test_print_arb_report_smoke():
+    locks = [ArbRec(team="France", yes_venue="polymarket", no_venue="kalshi",
+                    yes_ask=0.18, no_ask=0.71, contracts=100,
+                    stake_yes=18.0, stake_no=71.0, total_cost=90.44,
+                    guaranteed_profit=9.56, roc=0.1057, annual_roc=1.23)]
+    ev = [EvBetRec(team="Spain", venue="polymarket", side="YES", ask=0.10,
+                   fair=0.14, ev_pct=0.40, stake=20.0, potential_profit=180.0)]
+    dutch = DutchBook(field_sum=1.03, gap=-0.03, is_arb=False, legs=[])
+    res = ArbResult(locks=locks, ev_bets=ev, dutch=dutch)
+
+    buf = io.StringIO()
+    print_arb_report(res, poly_balance=10_000, kalshi_balance=10_000,
+                     console=Console(file=buf, width=200))
+    output = buf.getvalue()
+
+    assert "France" in output
+    assert "10,000" in output

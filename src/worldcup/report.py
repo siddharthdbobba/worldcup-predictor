@@ -115,9 +115,11 @@ def print_arb_report(res: ArbResult, poly_balance: float, kalshi_balance: float,
     """Pretty-print the arb card to the terminal."""
     console = console or Console()
     if not res.locks:
-        console.print("[bold]No risk-free arbitrage[/bold] at current prices.")
+        console.print(f"[bold]No risk-free arbitrage[/bold] at current prices "
+                      f"(Poly ${poly_balance:,.2f} · Kalshi ${kalshi_balance:,.2f}).")
     else:
-        t = Table(title="Method A — risk-free locks")
+        t = Table(title=f"Method A — risk-free locks "
+                        f"(Poly ${poly_balance:,.2f} · Kalshi ${kalshi_balance:,.2f})")
         for col in ("Team", "YES @", "NO @", "Contracts", "Stake YES",
                     "Stake NO", "Cost", "Profit", "ROC", "Annual"):
             t.add_column(col, justify="left" if col == "Team" else "right")
