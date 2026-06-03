@@ -243,3 +243,129 @@ def test_run_arb_cli_prints_card(monkeypatch, capsys):
                     enable_ev=True, enable_dutch=True)
     out = capsys.readouterr().out
     assert "France" in out
+
+
+# ---------------------------------------------------------------------------
+# New tests for capital over-allocation bug fix
+# ---------------------------------------------------------------------------
+
+def test_find_ev_bets_depletes_balance_across_multiple_bets():
+    """Two +EV teams both cheapest on Polymarket; at kelly_fraction=1.0 with
+    strong edges (Σkelly > 1), the pre-fix code lets both bets size against the
+    full balance, producing a total stake > poly_balance.  The fix must cap the
+    second bet to the remaining balance after the first, so the sum ≤ poly_balance.
+
+    team "Alpha": ask=0.05, consensus=0.60  → kelly=(0.60-0.05)/(1-0.05)≈0.5789
+    team "Beta":  ask=0.10, consensus=0.65  → kelly=(0.65-0.10)/(1-0.10)≈0.6111
+    Σkelly ≈ 1.19 → pre-fix total stake ≈ 119 on a $100 balance (BAD).
+    Post-fix: first bet (Beta, higher EV) stakes ≈61.11, leaving ≈38.89;
+    second bet (Alpha) stakes ≈38.89 capped by remainder → total=100 ≤ 100.
+    """
+    poly = {
+        "Alpha": {"ask": 0.05},
+        "Beta":  {"ask": 0.10},
+    }
+    kalshi = {}  # neither team on Kalshi → both cheapest on Poly
+    consensus = {"Alpha": 0.60, "Beta": 0.65}
+
+    poly_balance = 100.0
+    bets = find_ev_bets(poly, kalshi, consensus,
+                        poly_balance=poly_balance, kalshi_balance=1000.0,
+                        max_leg_stake=math.inf, kelly_fraction=1.0)
+
+    poly_bets = [b for b in bets if b.venue == VENUE_POLY]
+    assert len(poly_bets) == 2, "expected both Alpha and Beta to be +EV on Poly"
+    total_poly_stake = sum(b.stake for b in poly_bets)
+    assert total_poly_stake <= poly_balance + 1e-6, (
+        f"Poly stakes {total_poly_stake:.4f} exceed poly_balance {poly_balance}"
+    )
+
+
+def test_find_ev_bets_single_bet_stake_unchanged():
+    """Single-bet regression: with only one +EV team, the computed stake must
+    equal the pre-fix value max(0, kelly)*kelly_fraction*balance, capped by
+    max_leg_stake. The depletion logic must not alter a lone bet's sizing.
+
+    Spain: ask=0.10, consensus=0.14, kelly_fraction=0.5, poly_balance=1000
+    kelly = (0.14-0.10)/(1-0.10) = 0.04/0.90 ≈ 0.04444
+    stake = 0.04444 * 0.5 * 1000 ≈ 22.22
+    """
+    poly = {"Spain": {"ask": 0.10}}
+    kalshi = {}
+    consensus = {"Spain": 0.14}
+    kelly_fraction = 0.5
+    poly_balance = 1000.0
+
+    bets = find_ev_bets(poly, kalshi, consensus,
+                        poly_balance=poly_balance, kalshi_balance=1000.0,
+                        max_leg_stake=math.inf, kelly_fraction=kelly_fraction)
+
+    assert len(bets) == 1
+    spain = bets[0]
+    kelly = (0.14 - 0.10) / (1.0 - 0.10)
+    expected_stake = round(kelly * kelly_fraction * poly_balance, 2)
+    assert math.isclose(spain.stake, expected_stake, rel_tol=1e-6), (
+        f"Single-bet stake {spain.stake} ≠ expected {expected_stake}"
+    )
+
+
+def test_run_arb_lock_plus_ev_within_venue_balance():
+    """End-to-end: France lock commits Poly capital (YES leg on Poly @0.18),
+    then Brazil gets a Poly +EV bet.  Total Poly commitment must stay ≤ poly_balance.
+
+    We use a SMALL poly_balance so that without the fix, the EV bet would size
+    against the full balance and the combined spend would exceed it.
+
+    France lock (cand): yes_venue=Poly, a=0.18 → LP will use all $18 balance on
+    France contracts, leaving $0 for Brazil EV.  With the fix, Brazil EV stake=0
+    and the invariant holds.  To also verify the EV tier actually fires (exercises
+    both branches), we give Brazil enough balance: use poly_balance=200 so the
+    France lock spends ~$18*N contracts and Brazil still gets a positive stake.
+    Then assert:
+        poly_lock_spend + poly_ev_spend ≤ poly_balance + 1e-6
+    and that at least one EV bet on Poly was generated.
+    """
+    import math as _math
+    from worldcup.arb import run_arb, VENUE_POLY
+
+    # Keep existing POLY/KALSHI book fixtures (France locks, Spain locks, Brazil EV-only).
+    # Brazil is not a lock: a=0.20, b=0.80, profit≈0 after fees → excluded from locks.
+    # With consensus[Brazil]=0.40 >> 0.20 ask, it's a strong +EV Poly bet.
+    consensus = {"France": 0.22, "Spain": 0.13, "Brazil": 0.40}
+    poly_balance = 200.0
+    kalshi_balance = 10_000.0
+
+    res = run_arb(POLY, KALSHI, consensus,
+                  poly_balance=poly_balance,
+                  kalshi_balance=kalshi_balance,
+                  max_leg_stake=1000.0,
+                  days_to_settlement=47,
+                  kelly_fraction=1.0,   # amplify stakes to stress-test
+                  enable_ev=True, enable_dutch=False)
+
+    # Compute actual Poly spend from locks
+    from worldcup.arb import find_locks, VENUE_POLY as VP
+    cands = find_locks(POLY, KALSHI, min_profit=0.02, max_leg_stake=1000.0)
+    cand_by_team = {c.team: c for c in cands}
+
+    poly_lock_spend = 0.0
+    for rec in res.locks:
+        cand = cand_by_team.get(rec.team)
+        if cand is None:
+            continue
+        leg_stake = rec.stake_yes if rec.yes_venue == VP else rec.stake_no
+        fee_poly = rec.contracts * cand.fee_poly
+        poly_lock_spend += leg_stake + fee_poly
+
+    poly_ev_spend = sum(b.stake for b in res.ev_bets if b.venue == VP)
+
+    # Core invariant: combined spend must not exceed the balance
+    total = poly_lock_spend + poly_ev_spend
+    assert total <= poly_balance + 1e-6, (
+        f"Total Poly spend {total:.4f} exceeds balance {poly_balance}: "
+        f"lock={poly_lock_spend:.4f}, ev={poly_ev_spend:.4f}"
+    )
+
+    # Verify both tiers actually fired on Poly (otherwise the test proves nothing)
+    assert poly_lock_spend > 0, "Expected at least one Poly lock to fund"
+    assert poly_ev_spend > 0, "Expected at least one Poly EV bet to fund"

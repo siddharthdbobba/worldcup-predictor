@@ -154,11 +154,13 @@ def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
                  kalshi_balance: float, max_leg_stake: float = math.inf,
                  kelly_fraction: float = 0.5, min_ev: float = 0.0) -> list[EvBetRec]:
     """+EV (not risk-free) YES buys on whichever book underprices a team vs.
-    `consensus`. Each sized independently by fractional Kelly f* = (p - ask)/(1 - ask),
-    capped by that venue's balance and `max_leg_stake`. Deliberately thin/secondary.
+    `consensus`. Sized by fractional Kelly f* = (p - ask)/(1 - ask) in descending
+    EV order, depleting a per-venue running budget so that the total stakes for any
+    venue never exceed the provided balance. `poly_balance`/`kalshi_balance` should
+    already reflect capital already committed to locks upstream.
     """
-    balances = {VENUE_POLY: poly_balance, VENUE_KALSHI: kalshi_balance}
-    bets: list[EvBetRec] = []
+    # Phase 1: collect all eligible candidates without sizing yet.
+    candidates: list[tuple[float, str, str, float, float]] = []  # (ev, team, venue, ask, p)
     for team in sorted(set(poly) | set(kalshi)):
         p = consensus.get(team)
         if not p or p <= 0:
@@ -175,16 +177,26 @@ def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
         ev = p / ask - 1.0
         if ev < min_ev or p <= ask:
             continue
+        candidates.append((ev, team, venue, ask, p))
+
+    # Phase 2: size in descending EV order, depleting per-venue running budget.
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    remaining = {VENUE_POLY: poly_balance, VENUE_KALSHI: kalshi_balance}
+    bets: list[EvBetRec] = []
+    for ev, team, venue, ask, p in candidates:
+        if remaining[venue] <= 1e-9:
+            continue
         kelly = (p - ask) / (1.0 - ask)                  # full-Kelly fraction
-        stake = max(0.0, kelly) * kelly_fraction * balances[venue]
+        stake = max(0.0, kelly) * kelly_fraction * remaining[venue]
         stake = min(stake, max_leg_stake)
         if stake <= 1e-6:
             continue
+        remaining[venue] -= stake
         bets.append(EvBetRec(
             team=team, venue=venue, side="YES", ask=ask, fair=p,
             ev_pct=ev, stake=round(stake, 2),
             potential_profit=round(stake * (1.0 - ask) / ask, 2)))
-    bets.sort(key=lambda b: b.ev_pct, reverse=True)
+    # bets already in ev_pct-descending order from the sorted candidates
     return bets
 
 
@@ -239,8 +251,30 @@ def run_arb(poly: dict[str, dict], kalshi: dict[str, dict],
         locked = {r.team for r in locks}
         ev_poly = {t: v for t, v in poly.items() if t not in locked}
         ev_kalshi = {t: v for t, v in kalshi.items() if t not in locked}
+
+        # Compute how much capital the locks already consumed per venue.
+        # For each lock rec we need the corresponding _Cand for its fee split.
+        cand_by_team = {c.team: c for c in cands}
+        poly_spent = 0.0
+        kalshi_spent = 0.0
+        for rec in locks:
+            cand = cand_by_team.get(rec.team)
+            if cand is None:
+                continue
+            # Which leg sits on Poly vs Kalshi?
+            if rec.yes_venue == VENUE_POLY:
+                poly_spent += rec.stake_yes + rec.contracts * cand.fee_poly
+                kalshi_spent += rec.stake_no + rec.contracts * cand.fee_kalshi
+            else:
+                kalshi_spent += rec.stake_yes + rec.contracts * cand.fee_kalshi
+                poly_spent += rec.stake_no + rec.contracts * cand.fee_poly
+
+        ev_poly_balance = max(0.0, poly_balance - poly_spent)
+        ev_kalshi_balance = max(0.0, kalshi_balance - kalshi_spent)
+
         ev_bets = find_ev_bets(ev_poly, ev_kalshi, consensus,
-                               poly_balance=poly_balance, kalshi_balance=kalshi_balance,
+                               poly_balance=ev_poly_balance,
+                               kalshi_balance=ev_kalshi_balance,
                                max_leg_stake=max_leg_stake, kelly_fraction=kelly_fraction)
 
     dutch = None
