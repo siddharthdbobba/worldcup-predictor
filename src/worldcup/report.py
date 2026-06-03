@@ -89,7 +89,12 @@ def build_arb_markdown(res: ArbResult, poly_balance: float,
                 f"{r.contracts} | ${r.stake_yes:,.2f} | ${r.stake_no:,.2f} | ${r.total_cost:,.2f} | "
                 f"${r.guaranteed_profit:,.2f} | {r.roc:.2%} | {r.annual_roc:.1%} |")
         tot = sum(r.guaranteed_profit for r in res.locks)
-        lines += ["", f"_Total guaranteed profit: ${tot:,.2f}_"]
+        lines += ["", f"_Total guaranteed profit: ${tot:,.2f}_",
+                  "",
+                  "> **Funding note:** Place the listed number of contracts on each leg"
+                  " — fund by contract count, not by the per-leg $ stakes"
+                  " (those exclude trading fees, which are included in Cost)."
+                  " Equal contracts on both legs is what makes the payout identical either way."]
 
     if res.ev_bets:
         lines += ["", "## +EV cross-book bets (NOT risk-free)", "",
@@ -130,6 +135,11 @@ def print_arb_report(res: ArbResult, poly_balance: float, kalshi_balance: float,
                       f"${r.total_cost:,.2f}", f"${r.guaranteed_profit:,.2f}",
                       f"{r.roc:.2%}", f"{r.annual_roc:.1%}")
         console.print(t)
+        console.print(
+            "\n[bold]Funding note:[/bold] Place the listed number of contracts on each leg"
+            " — fund by contract count, not by the per-leg $ stakes"
+            " (those exclude trading fees, which are included in Cost)."
+            " Equal contracts on both legs is what makes the payout identical either way.")
     if res.ev_bets:
         et = Table(title="+EV cross-book bets (NOT risk-free)")
         for col in ("Team", "Venue", "Side", "Ask", "Fair", "EV", "Stake", "Profit"):

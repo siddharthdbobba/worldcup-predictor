@@ -47,12 +47,29 @@ def test_build_arb_markdown_renders_locks_and_disclaimer():
     assert "9.56" in md                                  # guaranteed profit
     assert "Spain" in md                                 # EV section
     assert "never stake more than you can afford" in md.lower()
+    assert "fund by contract count" in md.lower()        # funding safety note
 
 
 def test_build_arb_markdown_handles_no_locks():
     res = ArbResult(locks=[], ev_bets=[], dutch=None)
     md = build_arb_markdown(res, poly_balance=100, kalshi_balance=100)
     assert "no risk-free arbitrage" in md.lower()
+    assert "fund by contract count" not in md.lower()   # note absent when no locks
+
+
+def test_build_arb_markdown_warns_fund_by_contracts():
+    """Funding-safety note must appear when locks are present, not when absent."""
+    locks = [ArbRec(team="Brazil", yes_venue="polymarket", no_venue="kalshi",
+                    yes_ask=0.20, no_ask=0.70, contracts=50,
+                    stake_yes=10.0, stake_no=35.0, total_cost=45.50,
+                    guaranteed_profit=4.50, roc=0.099, annual_roc=0.90)]
+    res_with = ArbResult(locks=locks, ev_bets=[], dutch=None)
+    md_with = build_arb_markdown(res_with, poly_balance=1_000, kalshi_balance=1_000)
+    assert "fund by contract count" in md_with.lower()
+
+    res_without = ArbResult(locks=[], ev_bets=[], dutch=None)
+    md_without = build_arb_markdown(res_without, poly_balance=1_000, kalshi_balance=1_000)
+    assert "fund by contract count" not in md_without.lower()
 
 
 import io
@@ -77,3 +94,4 @@ def test_print_arb_report_smoke():
 
     assert "France" in output
     assert "10,000" in output
+    assert "fund by contract count" in output.lower()    # funding safety note in terminal too
