@@ -152,3 +152,33 @@ def fetch_market_probabilities(valid_teams=None, timeout: float = 20.0):
     if not poly and not kalshi:
         raise RuntimeError("both market sources failed: " + "; ".join(errors))
     return combine_markets(poly, kalshi, valid_teams)
+
+
+def fetch_books(valid_teams=None, timeout: float = 20.0):
+    """Fetch BOTH books as separate raw dicts for cross-book arbitrage.
+
+    Unlike `fetch_market_probabilities`, arb needs both venues, so this raises if
+    either is missing. Optionally restricts to `valid_teams` (drops stale
+    non-qualified markets that can carry a bogus 1.0 price).
+    """
+    poly, kalshi, errors = {}, {}, []
+    try:
+        r = httpx.get(POLYMARKET_URL, timeout=timeout, follow_redirects=True)
+        r.raise_for_status()
+        poly = parse_polymarket(r.json())
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"polymarket: {e}")
+    try:
+        r = httpx.get(KALSHI_URL, timeout=timeout, follow_redirects=True)
+        r.raise_for_status()
+        kalshi = parse_kalshi(r.json())
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"kalshi: {e}")
+    if not poly or not kalshi:
+        raise RuntimeError("cross-book arbitrage needs BOTH books; "
+                           + ("; ".join(errors) or "one book returned no markets"))
+    if valid_teams is not None:
+        vt = set(valid_teams)
+        poly = {t: v for t, v in poly.items() if t in vt}
+        kalshi = {t: v for t, v in kalshi.items() if t in vt}
+    return poly, kalshi

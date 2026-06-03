@@ -209,3 +209,42 @@ def dutch_book(poly: dict[str, dict], kalshi: dict[str, dict], *,
         legs.append((team, venue, raw))
     gap = 1.0 - field_sum
     return DutchBook(field_sum=field_sum, gap=gap, is_arb=gap > 0.0, legs=legs)
+
+
+@dataclass
+class ArbResult:
+    locks: list            # list[ArbRec]
+    ev_bets: list          # list[EvBetRec]
+    dutch: object | None   # DutchBook | None
+
+
+def run_arb(poly: dict[str, dict], kalshi: dict[str, dict],
+            consensus: dict[str, float], *, poly_balance: float,
+            kalshi_balance: float, max_leg_stake: float = math.inf,
+            days_to_settlement: int = 0, kalshi_fee_rate: float = 0.07,
+            poly_fee_rate: float = 0.0, min_profit: float = 0.02,
+            kelly_fraction: float = 0.5, enable_ev: bool = True,
+            enable_dutch: bool = True) -> ArbResult:
+    """Run method A end-to-end on two raw books: locks (LP-sized) first, then the
+    thin EV fallback on teams without a lock, then the optional Dutch-book check."""
+    cands = find_locks(poly, kalshi, kalshi_fee_rate=kalshi_fee_rate,
+                       poly_fee_rate=poly_fee_rate, min_profit=min_profit,
+                       max_leg_stake=max_leg_stake)
+    locks = size_locks(cands, poly_balance=poly_balance,
+                       kalshi_balance=kalshi_balance,
+                       days_to_settlement=days_to_settlement)
+
+    ev_bets: list = []
+    if enable_ev:
+        locked = {r.team for r in locks}
+        ev_poly = {t: v for t, v in poly.items() if t not in locked}
+        ev_kalshi = {t: v for t, v in kalshi.items() if t not in locked}
+        ev_bets = find_ev_bets(ev_poly, ev_kalshi, consensus,
+                               poly_balance=poly_balance, kalshi_balance=kalshi_balance,
+                               max_leg_stake=max_leg_stake, kelly_fraction=kelly_fraction)
+
+    dutch = None
+    if enable_dutch:
+        dutch = dutch_book(poly, kalshi, kalshi_fee_rate=kalshi_fee_rate,
+                           poly_fee_rate=poly_fee_rate)
+    return ArbResult(locks=locks, ev_bets=ev_bets, dutch=dutch)

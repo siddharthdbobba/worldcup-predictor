@@ -192,3 +192,24 @@ def test_dutch_book_fee_flips_venue_choice():
     # Poly is cheaper after fees despite the higher raw ask.
     assert ("A", "polymarket", 0.40) in db.legs
     assert math.isclose(db.field_sum, 0.40, rel_tol=1e-9)
+
+
+from worldcup.arb import run_arb, ArbResult
+
+
+def test_run_arb_combines_all_tiers():
+    consensus = {"France": 0.22, "Spain": 0.13, "Brazil": 0.205}
+    res = run_arb(POLY, KALSHI, consensus, poly_balance=10_000,
+                  kalshi_balance=10_000, max_leg_stake=1000.0,
+                  days_to_settlement=47)
+    assert isinstance(res, ArbResult)
+    assert any(r.team == "France" for r in res.locks)     # France lock sized
+    assert isinstance(res.ev_bets, list)
+    assert res.dutch is not None
+
+
+def test_run_arb_can_disable_extras():
+    res = run_arb(POLY, KALSHI, {"France": 0.22}, poly_balance=10_000,
+                  kalshi_balance=10_000, max_leg_stake=1000.0,
+                  days_to_settlement=47, enable_ev=False, enable_dutch=False)
+    assert res.ev_bets == [] and res.dutch is None
