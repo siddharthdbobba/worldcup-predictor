@@ -15,7 +15,7 @@ from worldcup.report import print_arb_report
 
 def run_arb_cli(*, poly_balance, kalshi_balance, kalshi_fee_rate, poly_fee_rate,
                 min_profit, max_leg_stake, days_to_settlement, kelly_fraction,
-                enable_ev, enable_dutch):
+                enable_ev, enable_dutch, min_ev=0.0, min_ask=0.02):
     """Fetch live data and run method A (no LLM in the numerical path)."""
     groups = fetch_group_draw()
     valid = {t for ts in groups.values() for t in ts}
@@ -28,8 +28,8 @@ def run_arb_cli(*, poly_balance, kalshi_balance, kalshi_fee_rate, poly_fee_rate,
                   kalshi_balance=kalshi_balance, max_leg_stake=max_leg_stake,
                   days_to_settlement=days_to_settlement, kalshi_fee_rate=kalshi_fee_rate,
                   poly_fee_rate=poly_fee_rate, min_profit=min_profit,
-                  kelly_fraction=kelly_fraction, enable_ev=enable_ev,
-                  enable_dutch=enable_dutch)
+                  kelly_fraction=kelly_fraction, min_ev=min_ev, min_ask=min_ask,
+                  enable_ev=enable_ev, enable_dutch=enable_dutch)
     console = None if sys.stdout.isatty() else Console(width=200)
     print_arb_report(res, poly_balance, kalshi_balance, console=console)
 
@@ -60,6 +60,11 @@ def parse_args():
                     help="[--arb] Polymarket fee rate (default 0)")
     ap.add_argument("--min-profit", type=float, default=0.02,
                     help="[--arb] Min profit per contract-pair after fees (default 0.02)")
+    ap.add_argument("--min-ev", type=float, default=0.0,
+                    help="[--arb] Min EV over consensus for an +EV-fallback bet (default 0.0)")
+    ap.add_argument("--min-ask", type=float, default=0.02,
+                    help="[--arb] Drop +EV-fallback bets priced below this ask — filters "
+                         "near-zero longshot noise (default 0.02 = 2c)")
     ap.add_argument("--max-leg-stake", type=float, default=1000.0,
                     help="[--arb] Max $ stake per leg (manual depth cap; default 1000)")
     ap.add_argument("--settlement-date", type=str, default="2026-07-19",
@@ -87,6 +92,7 @@ def main():
                     kalshi_fee_rate=args.kalshi_fee_rate, poly_fee_rate=args.poly_fee_rate,
                     min_profit=args.min_profit, max_leg_stake=args.max_leg_stake,
                     days_to_settlement=days, kelly_fraction=args.kelly_fraction,
+                    min_ev=args.min_ev, min_ask=args.min_ask,
                     enable_ev=not args.no_ev, enable_dutch=not args.no_dutch)
         return
     min_edge = 0.0 if args.all_bets else args.min_edge

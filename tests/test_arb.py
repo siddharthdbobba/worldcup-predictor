@@ -387,3 +387,31 @@ def test_run_arb_lock_plus_ev_within_venue_balance():
     # Verify both tiers actually fired on Poly (otherwise the test proves nothing)
     assert poly_lock_spend > 0, "Expected at least one Poly lock to fund"
     assert poly_ev_spend > 0, "Expected at least one Poly EV bet to fund"
+
+
+# ---------------------------------------------------------------------------
+# EV-tier noise gates: min_ask (near-zero longshots) and min_ev
+# ---------------------------------------------------------------------------
+
+def test_find_ev_bets_min_ask_drops_near_zero_longshots():
+    """A near-zero ask (e.g. 0.001) divides into an absurd EV/payout; the min_ask
+    floor must drop it while keeping a normally-priced +EV bet."""
+    poly = {"Haiti": {"ask": 0.001}, "Spain": {"ask": 0.10}}
+    kalshi = {}
+    consensus = {"Haiti": 0.005, "Spain": 0.14}   # both nominally +EV
+    bets = find_ev_bets(poly, kalshi, consensus, poly_balance=1000.0,
+                        kalshi_balance=1000.0, max_leg_stake=1000.0,
+                        kelly_fraction=0.5, min_ask=0.02)
+    teams = {b.team for b in bets}
+    assert "Haiti" not in teams        # ask 0.001 < min_ask 0.02 → dropped
+    assert "Spain" in teams            # ask 0.10 ≥ 0.02 → kept
+
+
+def test_find_ev_bets_min_ev_gate_filters_thin_edges():
+    """min_ev drops bets whose edge over consensus is below the threshold."""
+    poly = {"Spain": {"ask": 0.10}}    # EV = 0.14/0.10 - 1 = 0.40
+    kalshi = {}
+    consensus = {"Spain": 0.14}
+    assert find_ev_bets(poly, kalshi, consensus, poly_balance=1000.0,
+                        kalshi_balance=1000.0, max_leg_stake=1000.0,
+                        min_ev=0.5, min_ask=0.0) == []   # 0.40 < 0.5 → filtered

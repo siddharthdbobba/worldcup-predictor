@@ -151,12 +151,17 @@ def size_locks(cands: list[_Cand], *, poly_balance: float, kalshi_balance: float
 def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
                  consensus: dict[str, float], *, poly_balance: float,
                  kalshi_balance: float, max_leg_stake: float = math.inf,
-                 kelly_fraction: float = 0.5, min_ev: float = 0.0) -> list[EvBetRec]:
+                 kelly_fraction: float = 0.5, min_ev: float = 0.0,
+                 min_ask: float = 0.02) -> list[EvBetRec]:
     """+EV (not risk-free) YES buys on whichever book underprices a team vs.
     `consensus`. Sized by fractional Kelly f* = (p - ask)/(1 - ask) in descending
     EV order, depleting a per-venue running budget so that the total stakes for any
     venue never exceed the provided balance. `poly_balance`/`kalshi_balance` should
     already reflect capital already committed to locks upstream.
+
+    Two noise gates: `min_ask` drops near-zero-priced longshots (an ask of ~$0.001
+    divides into an absurd EV / payout multiple and is illiquid rounding noise, not a
+    real edge); `min_ev` drops bets whose edge over consensus is below the threshold.
     """
     # Phase 1: collect all eligible candidates without sizing yet.
     candidates: list[tuple[float, str, str, float, float]] = []  # (ev, team, venue, ask, p)
@@ -173,6 +178,8 @@ def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
         if not options:
             continue
         venue, ask = min(options, key=lambda o: o[1])
+        if ask < min_ask:                                # near-zero longshot noise
+            continue
         ev = p / ask - 1.0
         if ev < min_ev or p <= ask:
             continue
@@ -234,7 +241,8 @@ def run_arb(poly: dict[str, dict], kalshi: dict[str, dict],
             kalshi_balance: float, max_leg_stake: float = math.inf,
             days_to_settlement: int = 0, kalshi_fee_rate: float = 0.07,
             poly_fee_rate: float = 0.0, min_profit: float = 0.02,
-            kelly_fraction: float = 0.5, enable_ev: bool = True,
+            kelly_fraction: float = 0.5, min_ev: float = 0.0,
+            min_ask: float = 0.02, enable_ev: bool = True,
             enable_dutch: bool = True) -> ArbResult:
     """Run method A end-to-end on two raw books: locks (LP-sized) first, then the
     thin EV fallback on teams without a lock, then the optional Dutch-book check."""
@@ -274,7 +282,8 @@ def run_arb(poly: dict[str, dict], kalshi: dict[str, dict],
         ev_bets = find_ev_bets(ev_poly, ev_kalshi, consensus,
                                poly_balance=ev_poly_balance,
                                kalshi_balance=ev_kalshi_balance,
-                               max_leg_stake=max_leg_stake, kelly_fraction=kelly_fraction)
+                               max_leg_stake=max_leg_stake, kelly_fraction=kelly_fraction,
+                               min_ev=min_ev, min_ask=min_ask)
 
     dutch = None
     if enable_dutch:
