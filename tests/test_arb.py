@@ -121,3 +121,27 @@ def test_size_locks_annualizes_roc():
 def test_size_locks_empty():
     assert size_locks([], poly_balance=100, kalshi_balance=100,
                       days_to_settlement=47) == []
+
+
+from worldcup.arb import find_ev_bets
+
+
+def test_find_ev_bets_flags_underpriced_book():
+    # No lock, but Poly YES for Spain (0.10) sits below consensus 0.14 -> +EV.
+    poly = {"Spain": {"ask": 0.10, "yes_bid": 0.08, "no_ask": 0.92, "depth": 1000}}
+    kalshi = {"Spain": {"ask": 0.15, "yes_bid": 0.13, "no_ask": 0.86, "depth": 0}}
+    consensus = {"Spain": 0.14}
+    bets = find_ev_bets(poly, kalshi, consensus, poly_balance=1000,
+                        kalshi_balance=1000, max_leg_stake=1000, kelly_fraction=0.5)
+    spain = next(b for b in bets if b.team == "Spain")
+    assert spain.venue == "polymarket" and spain.side == "YES"
+    assert math.isclose(spain.ev_pct, 0.14 / 0.10 - 1.0)
+    assert 0 < spain.stake <= 1000
+
+
+def test_find_ev_bets_none_when_no_edge():
+    poly = {"Spain": {"ask": 0.20, "yes_bid": 0.18, "no_ask": 0.80, "depth": 1000}}
+    kalshi = {"Spain": {"ask": 0.21, "yes_bid": 0.19, "no_ask": 0.79, "depth": 0}}
+    consensus = {"Spain": 0.15}            # both asks above fair -> no +EV YES buy
+    assert find_ev_bets(poly, kalshi, consensus, poly_balance=1000,
+                        kalshi_balance=1000, max_leg_stake=1000) == []

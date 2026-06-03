@@ -144,3 +144,45 @@ def size_locks(cands: list[_Cand], *, poly_balance: float, kalshi_balance: float
             guaranteed_profit=round(profit, 2), roc=roc, annual_roc=annual))
     recs.sort(key=lambda r: r.guaranteed_profit, reverse=True)
     return recs
+
+
+from worldcup.models import EvBetRec
+
+
+def find_ev_bets(poly: dict[str, dict], kalshi: dict[str, dict],
+                 consensus: dict[str, float], *, poly_balance: float,
+                 kalshi_balance: float, max_leg_stake: float = math.inf,
+                 kelly_fraction: float = 0.5, min_ev: float = 0.0) -> list[EvBetRec]:
+    """+EV (not risk-free) YES buys on whichever book underprices a team vs.
+    `consensus`. Each sized independently by fractional Kelly f* = (p - ask)/(1 - ask),
+    capped by that venue's balance and `max_leg_stake`. Deliberately thin/secondary.
+    """
+    balances = {VENUE_POLY: poly_balance, VENUE_KALSHI: kalshi_balance}
+    bets: list[EvBetRec] = []
+    for team in sorted(set(poly) | set(kalshi)):
+        p = consensus.get(team)
+        if not p or p <= 0:
+            continue
+        # cheapest YES ask across the books that price this team
+        options = []
+        if team in poly and 0.0 < poly[team].get("ask", 0.0) < 1.0:
+            options.append((VENUE_POLY, poly[team]["ask"]))
+        if team in kalshi and 0.0 < kalshi[team].get("ask", 0.0) < 1.0:
+            options.append((VENUE_KALSHI, kalshi[team]["ask"]))
+        if not options:
+            continue
+        venue, ask = min(options, key=lambda o: o[1])
+        ev = p / ask - 1.0
+        if ev < min_ev or p <= ask:
+            continue
+        kelly = (p - ask) / (1.0 - ask)                  # full-Kelly fraction
+        stake = max(0.0, kelly) * kelly_fraction * balances[venue]
+        stake = min(stake, max_leg_stake)
+        if stake <= 1e-6:
+            continue
+        bets.append(EvBetRec(
+            team=team, venue=venue, side="YES", ask=ask, fair=p,
+            ev_pct=ev, stake=round(stake, 2),
+            potential_profit=round(stake * (1.0 - ask) / ask, 2)))
+    bets.sort(key=lambda b: b.ev_pct, reverse=True)
+    return bets
