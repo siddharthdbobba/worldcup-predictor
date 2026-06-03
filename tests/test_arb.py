@@ -258,8 +258,9 @@ def test_find_ev_bets_depletes_balance_across_multiple_bets():
     team "Alpha": ask=0.05, consensus=0.60  → kelly=(0.60-0.05)/(1-0.05)≈0.5789
     team "Beta":  ask=0.10, consensus=0.65  → kelly=(0.65-0.10)/(1-0.10)≈0.6111
     Σkelly ≈ 1.19 → pre-fix total stake ≈ 119 on a $100 balance (BAD).
-    Post-fix: first bet (Beta, higher EV) stakes ≈61.11, leaving ≈38.89;
-    second bet (Alpha) stakes ≈38.89 capped by remainder → total=100 ≤ 100.
+    EV ranks by p/ask-1: Alpha 0.60/0.05-1=11.0 > Beta 0.65/0.10-1=5.5, so Alpha
+    sizes FIRST. Post-fix: Alpha stakes 0.5789*100≈57.89 (leaving ≈42.11); Beta
+    sizes against the remainder → 0.6111*42.11≈25.73; total ≈83.62 ≤ 100.
     """
     poly = {
         "Alpha": {"ask": 0.05},
@@ -316,11 +317,14 @@ def test_run_arb_lock_plus_ev_within_venue_balance():
     We use a SMALL poly_balance so that without the fix, the EV bet would size
     against the full balance and the combined spend would exceed it.
 
-    France lock (cand): yes_venue=Poly, a=0.18 → LP will use all $18 balance on
-    France contracts, leaving $0 for Brazil EV.  With the fix, Brazil EV stake=0
-    and the invariant holds.  To also verify the EV tier actually fires (exercises
-    both branches), we give Brazil enough balance: use poly_balance=200 so the
-    France lock spends ~$18*N contracts and Brazil still gets a positive stake.
+    France (and Spain) lock via YES-on-Poly, so the LP spends nearly the whole
+    $200 Poly balance on locks. Pre-fix, the Brazil +EV bet then sizes against the
+    FULL $200 (0.25*200 = $50), pushing combined Poly spend to ~$250 > $200 (BAD).
+    Post-fix, Brazil sizes against the residual budget left after locks, so
+    lock+EV ≤ $200.
+
+    Note: the residual here is only a few cents, so Brazil's EV stake is tiny —
+    the INVARIANT (lock+EV ≤ balance), not the EV magnitude, is what this asserts.
     Then assert:
         poly_lock_spend + poly_ev_spend ≤ poly_balance + 1e-6
     and that at least one EV bet on Poly was generated.
