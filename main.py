@@ -3,7 +3,9 @@ import argparse
 import asyncio
 import sys
 from datetime import date
+from pathlib import Path
 
+from dotenv import load_dotenv
 from rich.console import Console
 
 from worldcup.agent import run_agent
@@ -75,6 +77,9 @@ def parse_args():
 
 
 def main():
+    # Load ANTHROPIC_API_KEY (and any other vars) from a project-local .env if present.
+    # Does NOT override an already-exported env var, so CI/containers still win.
+    load_dotenv(Path(__file__).resolve().parent / ".env")
     args = parse_args()
     if args.bankroll is not None and args.bankroll <= 0:
         raise SystemExit("error: --bankroll must be positive")

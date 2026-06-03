@@ -19,6 +19,9 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 cp .env.example .env   # add ANTHROPIC_API_KEY
 ```
+The key in `.env` is loaded automatically at startup (an already-exported
+`ANTHROPIC_API_KEY` env var takes precedence, for CI/containers). It's only needed for
+the forecast/betting-card path below — **`--arb` (method A) needs no API key**.
 
 ## Run
 ```bash
