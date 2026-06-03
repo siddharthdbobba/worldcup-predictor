@@ -65,3 +65,18 @@ def test_combine_intersects_valid_teams():
 
 def test_parse_polymarket_empty_list_returns_empty():
     assert parse_polymarket([]) == {}
+
+
+def test_parse_polymarket_captures_bid_and_derived_no():
+    data = json.loads((FIX / "polymarket_sample.json").read_text())
+    lines = parse_polymarket(data)
+    assert math.isclose(lines["France"]["yes_bid"], 0.16)
+    assert math.isclose(lines["France"]["no_ask"], 1 - 0.16)  # derived 1 - bestBid
+
+
+def test_parse_kalshi_captures_bid_and_quoted_no():
+    data = json.loads((FIX / "kalshi_sample.json").read_text())
+    lines = parse_kalshi(data)
+    assert math.isclose(lines["France"]["yes_bid"], 0.16)
+    assert math.isclose(lines["France"]["no_ask"], 0.84)   # quoted directly
+    assert math.isclose(lines["France"]["no_bid"], 0.81)

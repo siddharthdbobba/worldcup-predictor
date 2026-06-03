@@ -45,9 +45,12 @@ def parse_polymarket(payload) -> dict[str, dict]:
         price = m.get("lastTradePrice")
         if not title or price is None:
             continue
+        bid = _f(m.get("bestBid"))
         out[canonical(title)] = {
             "prob": _f(price),
             "ask": _f(m.get("bestAsk") or price),
+            "yes_bid": bid,
+            "no_ask": (1.0 - bid) if bid > 0 else 0.0,  # derived; Poly has no direct NO quote
             "vol": _f(m.get("volumeNum")),
             "depth": _f(m.get("liquidityNum")),
         }
@@ -65,6 +68,9 @@ def parse_kalshi(payload: dict) -> dict[str, dict]:
         out[canonical(title)] = {
             "prob": _f(price),
             "ask": _f(m.get("yes_ask_dollars") or price),
+            "yes_bid": _f(m.get("yes_bid_dollars")),
+            "no_ask": _f(m.get("no_ask_dollars")),
+            "no_bid": _f(m.get("no_bid_dollars")),
             "vol": _f(m.get("volume_fp")),
             "depth": _f(m.get("liquidity_dollars")),
         }
