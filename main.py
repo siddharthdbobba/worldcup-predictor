@@ -75,8 +75,11 @@ def main():
     if args.arb:
         if args.poly_balance <= 0 or args.kalshi_balance <= 0:
             raise SystemExit("error: --arb requires positive --poly-balance and --kalshi-balance")
-        y, m, d = (int(x) for x in args.settlement_date.split("-"))
-        days = (date(y, m, d) - date.today()).days
+        try:
+            settlement = date.fromisoformat(args.settlement_date)
+        except ValueError:
+            raise SystemExit("error: --settlement-date must be ISO format YYYY-MM-DD")
+        days = (settlement - date.today()).days
         run_arb_cli(poly_balance=args.poly_balance, kalshi_balance=args.kalshi_balance,
                     kalshi_fee_rate=args.kalshi_fee_rate, poly_fee_rate=args.poly_fee_rate,
                     min_profit=args.min_profit, max_leg_stake=args.max_leg_stake,

@@ -215,6 +215,21 @@ def test_run_arb_can_disable_extras():
     assert res.ev_bets == [] and res.dutch is None
 
 
+def test_arb_cli_rejects_bad_settlement_date(monkeypatch):
+    import sys
+    import main as cli
+    monkeypatch.setattr(sys, "argv", [
+        "main.py", "--arb",
+        "--poly-balance", "100",
+        "--kalshi-balance", "100",
+        "--settlement-date", "not-a-date",
+    ])
+    import pytest
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert "YYYY-MM-DD" in str(exc_info.value)
+
+
 def test_run_arb_cli_prints_card(monkeypatch, capsys):
     import main as cli
     monkeypatch.setattr(cli, "fetch_group_draw", lambda: {"A": ["France", "Spain", "Brazil", "Japan"]})
