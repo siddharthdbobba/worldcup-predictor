@@ -3,6 +3,16 @@
 from __future__ import annotations
 
 
+def market_weight(liquidity: float, w_cap: float = 0.7, K: float = 0.5) -> float:
+    """Market blend weight for a priced team: w_cap * L/(L+K), clamped at L>=0.
+
+    `liquidity` here is the market's normalized confidence (sum of the two books'
+    [0,1] volumes, range [0,2]); K=0.5 is the blend's default half-saturation.
+    """
+    L = max(0.0, liquidity)
+    return w_cap * (L / (L + K)) if (L + K) > 0 else 0.0
+
+
 def blend(model: dict[str, float], market: dict[str, float],
           liquidity: dict[str, float], w_cap: float = 0.7, K: float = 1e6,
           fixed_w: float | None = None) -> dict[str, float]:
@@ -17,8 +27,7 @@ def blend(model: dict[str, float], market: dict[str, float],
             if fixed_w is not None:
                 w = fixed_w
             else:
-                L = max(0.0, liquidity.get(team, 0.0))
-                w = w_cap * (L / (L + K)) if (L + K) > 0 else 0.0
+                w = market_weight(liquidity.get(team, 0.0), w_cap=w_cap, K=K)
             out[team] = w * market[team] + (1 - w) * m
         else:
             out[team] = m

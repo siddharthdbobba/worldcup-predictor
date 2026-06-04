@@ -131,6 +131,21 @@ def combine_markets(poly: dict[str, dict], kalshi: dict[str, dict],
     return prob, ask, confidence, depth
 
 
+def devigged_per_book(poly: dict[str, dict], kalshi: dict[str, dict],
+                      valid_teams=None) -> tuple[dict[str, float], dict[str, float]]:
+    """Each book's win probabilities, de-vigged SEPARATELY (overround stripped) and
+    restricted to `valid_teams`, so a single book's number is directly comparable to
+    the model and the blend. Returns (poly_prob, kalshi_prob); a team absent from a
+    book is simply absent from that book's dict."""
+    if valid_teams is not None:
+        vt = set(valid_teams)
+        poly = {t: v for t, v in poly.items() if t in vt}
+        kalshi = {t: v for t, v in kalshi.items() if t in vt}
+    poly_p = _devig({t: v["prob"] for t, v in poly.items()})
+    kalshi_p = _devig({t: v["prob"] for t, v in kalshi.items()})
+    return poly_p, kalshi_p
+
+
 def fetch_market_probabilities(valid_teams=None, timeout: float = 20.0):
     """Fetch both books and combine. Returns (prob, ask, confidence, depth).
 

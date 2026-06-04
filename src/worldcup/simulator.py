@@ -144,6 +144,77 @@ def simulate_once(ratings: dict[str, float], groups: dict[str, list[str]],
     return play_knockout(seeded, ratings, rng, p)
 
 
+STAGES = ("r32", "r16", "qf", "sf", "final", "champion")
+
+
+def _play_knockout_tracked(seeded_teams, ratings, rng, p):
+    """Play the seeded bracket, returning (champion, {team: deepest_stage_index}).
+
+    Mirrors play_knockout's match order exactly so RNG consumption is identical.
+    All seeded teams reach stage 0 (r32); each round's winners advance one stage.
+    """
+    order = bracket_seed_order(len(seeded_teams))
+    bracket = [seeded_teams[s - 1] for s in order]
+    reached = {t: 0 for t in bracket}              # everyone seeded reaches r32
+    stage = 0
+    while len(bracket) > 1:
+        winners = [play_match_ko(bracket[i], bracket[i + 1], ratings, rng, p)
+                   for i in range(0, len(bracket), 2)]
+        stage += 1
+        for w in winners:
+            reached[w] = stage
+        bracket = winners
+    return bracket[0], reached
+
+
+def simulate_once_detailed(ratings, groups, rng, p):
+    """One tournament; return (champion, {team: deepest_stage_index}).
+
+    Identical group/seeding logic and RNG order to simulate_once; only the
+    knockout is played via the tracked variant. Teams that fail to qualify from
+    their group are absent from `reached`.
+    """
+    qualifiers = []
+    thirds = []
+    for teams in groups.values():
+        ranked, stats = simulate_group(teams, ratings, rng, p)
+        qualifiers.append((ranked[0], stats[ranked[0]], 1))
+        qualifiers.append((ranked[1], stats[ranked[1]], 2))
+        thirds.append((ranked[2], stats[ranked[2]]))
+    best_thirds = set(rank_thirds(thirds, rng))
+    for name, stats in thirds:
+        if name in best_thirds:
+            qualifiers.append((name, stats, 3))
+    seeded = [q[0] for q in sorted(
+        qualifiers, key=lambda q: (q[2], *_rank_key(q[1], rng)))]
+    return _play_knockout_tracked(seeded, ratings, rng, p)
+
+
+def run_simulation_detailed(ratings, groups, n=DEFAULT_SIMS, seed=42, params=None):
+    """Run n tournaments; return (champion_probs, advancement).
+
+    champion_probs: {team: P(win)} over ALL teams in `ratings` (matches
+    run_simulation exactly for the same seed/n). advancement: {team: {stage: P}}
+    where stage in STAGES is cumulative (P of reaching at least that round).
+    """
+    p = params or MatchModelParams()
+    rng = np.random.default_rng(seed)
+    champ_counts = Counter()
+    stage_counts = {t: [0] * len(STAGES) for t in ratings}
+    for _ in range(n):
+        champ, reached = simulate_once_detailed(ratings, groups, rng, p)
+        champ_counts[champ] += 1
+        for team, deepest in reached.items():
+            for s in range(deepest + 1):
+                stage_counts[team][s] += 1
+    champion_probs = {t: champ_counts.get(t, 0) / n for t in ratings}
+    advancement = {
+        t: {STAGES[s]: stage_counts[t][s] / n for s in range(len(STAGES))}
+        for t in ratings
+    }
+    return champion_probs, advancement
+
+
 def run_simulation(ratings: dict[str, float], groups: dict[str, list[str]],
                    n: int = DEFAULT_SIMS, seed: int = 42,
                    params: MatchModelParams | None = None) -> dict[str, float]:

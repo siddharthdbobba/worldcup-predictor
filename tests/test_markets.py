@@ -2,7 +2,9 @@ import json
 import math
 from pathlib import Path
 
-from worldcup.markets import combine_markets, parse_kalshi, parse_polymarket
+from worldcup.markets import (
+    combine_markets, devigged_per_book, parse_kalshi, parse_polymarket,
+)
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -80,3 +82,15 @@ def test_parse_kalshi_captures_bid_and_quoted_no():
     assert math.isclose(lines["France"]["yes_bid"], 0.16)
     assert math.isclose(lines["France"]["no_ask"], 0.84)   # quoted directly
     assert math.isclose(lines["France"]["no_bid"], 0.81)
+
+
+def test_devigged_per_book_strips_overround_and_restricts():
+    # Each book's raw probs sum > 1 (the vig); de-vig normalizes each to 1.
+    poly = {"A": {"prob": 0.6}, "B": {"prob": 0.6}, "Stale": {"prob": 0.9}}
+    kalshi = {"A": {"prob": 0.55}}  # B not on Kalshi
+    poly_p, kalshi_p = devigged_per_book(poly, kalshi, valid_teams={"A", "B"})
+    assert "Stale" not in poly_p                       # restricted to valid teams
+    assert math.isclose(sum(poly_p.values()), 1.0)     # de-vigged
+    assert math.isclose(poly_p["A"], 0.5)              # 0.6 / (0.6 + 0.6)
+    assert math.isclose(kalshi_p["A"], 1.0)            # only team on the book
+    assert "B" not in kalshi_p                          # absent => caller emits None
