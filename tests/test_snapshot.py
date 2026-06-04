@@ -22,6 +22,7 @@ def test_build_snapshot_shape_with_bankroll():
     snap = build_snapshot(
         groups=groups, ratings=ratings, market=market, ask=ask, confidence=conf,
         depth=depth, forecasts=forecasts, advancement=adv, bets=bets,
+        poly_pct={"Spain": 0.19, "Brazil": 0.14}, kalshi_pct={"Spain": 0.17},
         bankroll=100.0, n_sims=20000, seed=42, kelly_fraction=0.5, min_edge=0.05,
         generated_at="2026-06-02T00:00:00Z")
     assert set(snap) == {"meta", "draw", "ratings", "forecasts", "market",
@@ -30,7 +31,12 @@ def test_build_snapshot_shape_with_bankroll():
     assert snap["draw"] == groups
     assert set(snap["ratings"]) == {"Spain", "Brazil", "Japan", "Ghana"}  # Italy dropped
     assert snap["forecasts"][0]["team"] == "Spain"
-    assert set(snap["market"]["Spain"]) == {"prob", "ask", "confidence", "depth"}
+    assert set(snap["market"]["Spain"]) == {"prob", "ask", "confidence", "depth",
+                                            "polymarket", "kalshi"}
+    assert snap["market"]["Spain"]["polymarket"] == 0.19
+    assert snap["market"]["Spain"]["kalshi"] == 0.17
+    assert snap["market"]["Brazil"]["kalshi"] is None       # not priced on Kalshi
+    assert snap["market"]["Japan"]["polymarket"] is None     # drawn but unpriced
     assert 0.0 <= snap["blend_weights"]["Spain"] <= 0.7
     assert snap["meta"]["n_sims"] == 20000
     assert snap["bankroll"] == 100.0

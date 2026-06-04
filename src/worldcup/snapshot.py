@@ -10,11 +10,15 @@ from worldcup.models import BetRec, Forecast, MatchModelParams
 def build_snapshot(*, groups, ratings, market, ask, confidence, depth,
                    forecasts, advancement, bets, bankroll, n_sims, seed,
                    kelly_fraction, min_edge, generated_at,
+                   poly_pct=None, kalshi_pct=None,
                    params: MatchModelParams | None = None) -> dict:
     """Assemble the snapshot dict. Only the 48 drawn teams are emitted; `ratings`
     may contain extras. `confidence` is the per-team market confidence (the blend
-    weight input); `depth` is dollar order-book depth."""
+    weight input); `depth` is dollar order-book depth. `poly_pct`/`kalshi_pct` are
+    each book's de-vigged win prob per team (None => team not priced on that book)."""
     p = params or MatchModelParams()
+    poly_pct = poly_pct or {}
+    kalshi_pct = kalshi_pct or {}
     drawn = sorted({t for ts in groups.values() for t in ts})
     staked = round(sum(b.stake for b in bets), 2) if bankroll else None
     reserve = round(bankroll - staked, 2) if bankroll else None
@@ -36,7 +40,8 @@ def build_snapshot(*, groups, ratings, market, ask, confidence, depth,
         ],
         "market": {
             t: {"prob": market.get(t, 0.0), "ask": ask.get(t, 0.0),
-                "confidence": confidence.get(t, 0.0), "depth": depth.get(t, 0.0)}
+                "confidence": confidence.get(t, 0.0), "depth": depth.get(t, 0.0),
+                "polymarket": poly_pct.get(t), "kalshi": kalshi_pct.get(t)}
             for t in drawn
         },
         "blend_weights": {
@@ -63,7 +68,7 @@ from pathlib import Path
 
 from worldcup.blend import blend
 from worldcup.draw import fetch_group_draw, validate_draw
-from worldcup.markets import fetch_market_probabilities
+from worldcup.markets import combine_markets, devigged_per_book, fetch_books
 from worldcup.models import Forecast
 from worldcup.ratings import fetch_ratings
 from worldcup.simulator import run_simulation_detailed
@@ -82,10 +87,14 @@ def generate_snapshot(*, bankroll, n_sims, seed, kelly_fraction, min_edge) -> di
     missing = sorted(t for t in valid if t not in ratings)
     if missing:
         raise SystemExit(f"error: no Elo rating for drawn teams: {missing}")
-    market, ask, confidence, depth = fetch_market_probabilities(valid_teams=valid)
+    # One fetch of both books; derive the combined consensus AND each book's
+    # de-vigged prob from the same pull (no re-fetch, no quote skew between them).
+    poly, kalshi = fetch_books(valid_teams=valid)
+    market, ask, confidence, depth = combine_markets(poly, kalshi, valid_teams=valid)
     if not market:
         raise SystemExit("error: market fetch returned no priced teams; aborting "
                          "(refusing to ship a snapshot without live prices)")
+    poly_pct, kalshi_pct = devigged_per_book(poly, kalshi, valid_teams=valid)
     sub_ratings = {t: ratings[t] for t in valid}
     champ, advancement = run_simulation_detailed(sub_ratings, groups,
                                                  n=n_sims, seed=seed)
@@ -98,9 +107,9 @@ def generate_snapshot(*, bankroll, n_sims, seed, kelly_fraction, min_edge) -> di
                           min_edge=min_edge) if bankroll else []
     return build_snapshot(
         groups=groups, ratings=ratings, market=market, ask=ask,
-        confidence=confidence, depth=depth, forecasts=forecasts,
-        advancement=advancement, bets=bets, bankroll=bankroll, n_sims=n_sims,
-        seed=seed, kelly_fraction=kelly_fraction, min_edge=min_edge,
+        confidence=confidence, depth=depth, poly_pct=poly_pct, kalshi_pct=kalshi_pct,
+        forecasts=forecasts, advancement=advancement, bets=bets, bankroll=bankroll,
+        n_sims=n_sims, seed=seed, kelly_fraction=kelly_fraction, min_edge=min_edge,
         generated_at=datetime.now(timezone.utc).isoformat())
 
 
