@@ -56,6 +56,25 @@ Additional flags:
 - `--kalshi-fee-rate` / `--poly-fee-rate` — override the per-venue fee model
 - `--settlement-date YYYY-MM-DD` — used for annualized-ROC calculation (default `2026-07-19`)
 
+## Calibrating the model (`--calibrate`)
+
+The match model's `base`/`scale` default to a hand-tuned guess. To fit them to data
+instead, replay historical international results through an Elo engine and
+maximum-likelihood-fit the Poisson goals model:
+
+```bash
+.venv/bin/python main.py --calibrate --history-years 15
+```
+
+This fetches a public results dataset (martj42), recomputes each match's pre-match Elo,
+fits `base`/`scale`, and writes `src/worldcup/data/calibrated_params.json` (gitignored —
+it's machine-generated; regenerate as data updates). Subsequent forecasts **load it
+automatically**; pass `--no-calibrated` to ignore it. The fitted `scale` is rescaled to
+eloratings.net's live rating spread so it transfers to the forecast — sanity-check that a
+forecast's favorite still lands in a sensible range. Flags: `--all-matches` (default is
+neutral-site only, to avoid home-advantage confounding), `--history-url` to override the
+source.
+
 ## Test
 ```bash
 .venv/bin/pytest -q

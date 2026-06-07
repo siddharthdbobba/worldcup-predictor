@@ -1,4 +1,9 @@
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+DATA_DIR = Path(__file__).resolve().parent / "data"
+CALIBRATED_PARAMS_PATH = DATA_DIR / "calibrated_params.json"
 
 
 @dataclass(frozen=True)
@@ -19,6 +24,34 @@ class MatchModelParams:
                                    # simplification: per-match venue isn't modeled,
                                    # so neutral-site late-stage games get it too)
     hosts: tuple[str, ...] = ("United States", "Canada", "Mexico")
+
+    def to_dict(self) -> dict:
+        return {"base": self.base, "scale": self.scale,
+                "host_bump": self.host_bump, "hosts": list(self.hosts)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "MatchModelParams":
+        defaults = cls()
+        return cls(
+            base=float(d.get("base", defaults.base)),
+            scale=float(d.get("scale", defaults.scale)),
+            host_bump=float(d.get("host_bump", defaults.host_bump)),
+            hosts=tuple(d.get("hosts", defaults.hosts)),
+        )
+
+
+def load_params(path: Path = CALIBRATED_PARAMS_PATH) -> MatchModelParams:
+    """Return calibrated params if a calibration file exists, else the defaults.
+
+    Falls back to defaults on any read/parse error — a forecast must never crash on a
+    stale or corrupt calibration file.
+    """
+    try:
+        if path.exists():
+            return MatchModelParams.from_dict(json.loads(path.read_text()))
+    except Exception:  # noqa: BLE001 - degrade to defaults, never crash a forecast
+        pass
+    return MatchModelParams()
 
 
 @dataclass

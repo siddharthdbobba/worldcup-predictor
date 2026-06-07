@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from worldcup.blend import blend
-from worldcup.models import BetRec, Forecast
+from worldcup.models import BetRec, Forecast, MatchModelParams, load_params
 from worldcup.simulator import run_simulation
 from worldcup.stake import recommend_bets
 
@@ -21,20 +21,23 @@ class PipelineResult:
 
 def run_pipeline(ratings, groups, market, ask, confidence, depth=None, *, bankroll,
                  n_sims=20000, seed=42, w_cap=0.7, K=0.5,
-                 kelly_fraction=0.5, min_edge=0.05) -> PipelineResult:
+                 kelly_fraction=0.5, min_edge=0.05,
+                 params: MatchModelParams | None = None) -> PipelineResult:
     """Simulate, blend, and (if bankroll given) recommend bets.
 
     `ratings` may cover more teams than the draw; only the 48 drawn teams are
     simulated. `confidence` is the market's normalized confidence in [0, 2] (the
     blend weight; hence the K~0.5 default); `depth` is dollar order-book depth used
     only to cap stake sizes. `min_edge` gates value bets by model-vs-market
-    disagreement (probability points); set 0 to show every +EV bet.
+    disagreement (probability points); set 0 to show every +EV bet. `params` overrides
+    the match-model parameters (e.g. a calibrated fit); None uses the model defaults.
     """
     teams = {t for ts in groups.values() for t in ts}
     missing = sorted(t for t in teams if t not in ratings)
     if missing:
         raise ValueError(f"no Elo rating for drawn teams: {missing}")
-    model = run_simulation({t: ratings[t] for t in teams}, groups, n=n_sims, seed=seed)
+    model = run_simulation({t: ratings[t] for t in teams}, groups,
+                           n=n_sims, seed=seed, params=params)
     blended = blend(model, market, confidence, w_cap=w_cap, K=K)
     forecasts = [Forecast(t, model[t], market.get(t, 0.0), blended[t]) for t in model]
     forecasts.sort(key=lambda f: f.blended_pct, reverse=True)
@@ -92,18 +95,21 @@ async def _t_markets(args):
 
 @tool("run_forecast", "Simulate, blend, and recommend bets",
       {"bankroll": float, "n_sims": int, "seed": int, "kelly_fraction": float,
-       "min_edge": float})
+       "min_edge": float, "use_calibrated": bool})
 async def _t_forecast(args):
     groups = fetch_group_draw()
     ratings = fetch_ratings()
     valid = {t for ts in groups.values() for t in ts}
     prob, ask, conf, depth = fetch_market_probabilities(valid_teams=valid)
+    # Auto-apply the calibrated base/scale fit if present (unless turned off).
+    params = load_params() if args.get("use_calibrated", True) else MatchModelParams()
     result = run_pipeline(ratings, groups, prob, ask, conf, depth,
                           bankroll=args.get("bankroll"),
                           n_sims=int(args.get("n_sims", 20000)),
                           seed=int(args.get("seed", 42)),
                           kelly_fraction=float(args.get("kelly_fraction", 0.5)),
-                          min_edge=float(args.get("min_edge", 0.05)))
+                          min_edge=float(args.get("min_edge", 0.05)),
+                          params=params)
     print_report(result.forecasts, result.bets, args.get("bankroll"))
     md = build_markdown(result.forecasts, result.bets, args.get("bankroll"))
     out_path = Path("worldcup_report.md")
@@ -128,10 +134,11 @@ def build_options() -> ClaudeAgentOptions:
 
 
 async def run_agent(bankroll: float | None, n_sims: int, seed: int,
-                    kelly_fraction: float, min_edge: float = 0.05) -> None:
+                    kelly_fraction: float, min_edge: float = 0.05,
+                    use_calibrated: bool = True) -> None:
     prompt = (f"Forecast the 2026 World Cup. Bankroll: "
               f"{bankroll if bankroll else 'none (skip betting card)'}. "
               f"Use n_sims={n_sims}, seed={seed}, kelly_fraction={kelly_fraction}, "
-              f"min_edge={min_edge}.")
+              f"min_edge={min_edge}, use_calibrated={use_calibrated}.")
     async for message in query(prompt=prompt, options=build_options()):
         print(message)

@@ -1,17 +1,24 @@
 """CLI entrypoint for the World Cup predictor agent."""
 import argparse
 import asyncio
+import json
 import sys
 from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.table import Table
 
 from worldcup.agent import run_agent
 from worldcup.arb import run_arb
+from worldcup.calibrate import fit_params, rescale_to_live
 from worldcup.draw import fetch_group_draw
+from worldcup.elo_engine import replay
+from worldcup.history import RESULTS_URL, fetch_matches
 from worldcup.markets import combine_markets, fetch_books
+from worldcup.models import CALIBRATED_PARAMS_PATH, MatchModelParams
+from worldcup.ratings import fetch_ratings
 from worldcup.report import print_arb_report
 
 
@@ -36,6 +43,50 @@ def run_arb_cli(*, poly_balance, kalshi_balance, kalshi_fee_rate, poly_fee_rate,
     print_arb_report(res, poly_balance, kalshi_balance, console=console)
 
 
+def run_calibrate_cli(*, since_year, all_matches, history_url):
+    """Fetch results, replay Elo, MLE-fit base/scale, write calibrated_params.json."""
+    console = Console()
+    console.print(f"[dim]Fetching international results since {since_year} and "
+                  f"replaying Elo…[/dim]")
+    matches = fetch_matches(since_year=since_year, url=history_url or RESULTS_URL)
+    rows = replay(matches)
+    res = fit_params(rows, neutral_only=not all_matches)
+
+    # The fitted scale is relative to our replayed-Elo spread, which is narrower than
+    # eloratings.net's live ratings (what forecasts use). Rescale it to live units so it
+    # transfers; otherwise the raw fit over-dramatizes live Elo gaps (favorite too high).
+    fit_elos = [e for r in rows if (r.neutral or all_matches)
+                for e in (r.elo_home, r.elo_away)]
+    live = fetch_ratings()
+    scale_live = rescale_to_live(res.scale, fit_elos, live)
+
+    old = MatchModelParams()
+    new = MatchModelParams(base=res.base, scale=scale_live,
+                           host_bump=old.host_bump, hosts=old.hosts)
+    payload = new.to_dict()
+    payload["_meta"] = {"n_matches": res.n_matches, "ll_before": res.ll_before,
+                        "ll_after": res.ll_after, "neutral_only": not all_matches,
+                        "since_year": since_year, "converged": res.converged,
+                        "scale_fit_replay_units": res.scale}
+    CALIBRATED_PARAMS_PATH.write_text(json.dumps(payload, indent=2) + "\n")
+
+    t = Table(title="Calibration — base/scale MLE fit")
+    for col in ("Param", "Old (default)", "Fitted"):
+        t.add_column(col, justify="left" if col == "Param" else "right")
+    t.add_row("base", f"{old.base:.3f}", f"{new.base:.3f}")
+    t.add_row("scale", f"{old.scale:.0f}", f"{new.scale:.0f}")
+    console.print(t)
+    matchset = "neutral-site only" if not all_matches else "all matches (+home bump)"
+    console.print(f"matches used: {res.n_matches:,} ({matchset}) · "
+                  f"logLik {res.ll_before:,.0f} → {res.ll_after:,.0f} "
+                  f"(Δ {res.ll_after - res.ll_before:+,.0f}) · converged={res.converged}")
+    console.print(f"[dim]scale fitted on replayed Elo = {res.scale:.0f}; rescaled to live "
+                  f"eloratings spread → {scale_live:.0f}[/dim]")
+    console.print(f"[green]Wrote {CALIBRATED_PARAMS_PATH}[/green] — forecasts now use it "
+                  f"(disable with --no-calibrated).")
+    console.print("[yellow]Sanity-check[/yellow] a forecast's favorite still lands ~15–25%.")
+
+
 def parse_args():
     ap = argparse.ArgumentParser(description="2026 World Cup forecaster + staking advisor")
     ap.add_argument("--bankroll", type=float, default=None,
@@ -50,6 +101,16 @@ def parse_args():
                          "+EV bet. Default 0.05.")
     ap.add_argument("--all-bets", action="store_true",
                     help="Show every +EV value bet (equivalent to --min-edge 0)")
+    ap.add_argument("--no-calibrated", action="store_true",
+                    help="Ignore a saved calibration and use the default base/scale")
+    ap.add_argument("--calibrate", action="store_true",
+                    help="Calibrate base/scale by backtest, write calibrated_params.json, exit")
+    ap.add_argument("--history-years", type=int, default=15,
+                    help="[--calibrate] How many years of results to fit on (default 15)")
+    ap.add_argument("--all-matches", action="store_true",
+                    help="[--calibrate] Fit on all matches (default: neutral-site only)")
+    ap.add_argument("--history-url", type=str, default=None,
+                    help="[--calibrate] Override the results CSV URL")
     ap.add_argument("--arb", action="store_true",
                     help="Run method A: cross-book arbitrage (Polymarket vs Kalshi)")
     ap.add_argument("--poly-balance", type=float, default=0.0,
@@ -85,6 +146,13 @@ def main():
         raise SystemExit("error: --bankroll must be positive")
     if args.min_edge < 0:
         raise SystemExit("error: --min-edge must be >= 0")
+    if args.calibrate:
+        if args.history_years <= 0:
+            raise SystemExit("error: --history-years must be positive")
+        since = date.today().year - args.history_years
+        run_calibrate_cli(since_year=since, all_matches=args.all_matches,
+                          history_url=args.history_url)
+        return
     if args.arb:
         if args.poly_balance <= 0 or args.kalshi_balance <= 0:
             raise SystemExit("error: --arb requires positive --poly-balance and --kalshi-balance")
@@ -102,7 +170,8 @@ def main():
         return
     min_edge = 0.0 if args.all_bets else args.min_edge
     asyncio.run(run_agent(args.bankroll, args.sims, args.seed,
-                          args.kelly_fraction, min_edge))
+                          args.kelly_fraction, min_edge,
+                          use_calibrated=not args.no_calibrated))
 
 
 if __name__ == "__main__":
