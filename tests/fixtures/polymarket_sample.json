@@ -1,0 +1,7 @@
+{
+  "title": "World Cup Winner",
+  "markets": [
+    {"groupItemTitle": "France", "lastTradePrice": 0.17, "bestAsk": 0.18, "bestBid": 0.16, "liquidityNum": 250000, "volumeNum": 8000000},
+    {"groupItemTitle": "Spain",  "lastTradePrice": 0.16, "bestAsk": 0.17, "bestBid": 0.15, "liquidityNum": 240000, "volumeNum": 7000000}
+  ]
+}

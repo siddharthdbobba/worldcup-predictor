@@ -1,0 +1,5 @@
+date,home_team,away_team,home_score,away_score,tournament,city,country,neutral
+2018-06-14,Russia,Saudi Arabia,5,0,FIFA World Cup,Moscow,Russia,FALSE
+2019-07-01,Brazil,Korea Republic,3,0,Friendly,Brasilia,Brazil,FALSE
+2022-12-18,Argentina,France,3,3,FIFA World Cup,Lusail,Qatar,TRUE
+2023-01-01,Spain,Italy,,,Friendly,Madrid,Spain,FALSE
